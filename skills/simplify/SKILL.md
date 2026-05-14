@@ -1,6 +1,6 @@
 ---
 name: simplify
-description: Simplify and refine existing code for clarity, consistency, and maintainability while preserving exact behavior. Use when the user asks to simplify, de-cruft, reduce complexity, remove cargo-cult code, clean up recently changed code, or run a behavior-preserving final cleanup pass.
+description: Simplify and refine existing code for clarity, consistency, and maintainability while preserving exact behavior. Use when the user asks to simplify, de-cruft, reduce complexity, remove cargo-cult code, clean up recently changed code, or run a behavior-preserving final cleanup pass. Requires a fresh independent agent pass when the host supports agents.
 ---
 
 # Simplify
@@ -27,6 +27,12 @@ does.
 - Preserve exact behavior: features, public API, side effects, ordering,
   defaults, error semantics, persistence format, and user-visible output stay
   the same.
+- Run this skill through a fresh independent agent when the host supports
+  subagents, delegated agents, or independent reviewer agents. Treat an
+  explicit invocation of this skill as permission to spawn that agent for the
+  simplify pass. Do not reuse an existing agent with task history.
+- If no independent agent mechanism is available, say that the skill cannot be
+  fully applied in its required form before doing any local-only fallback.
 - Follow local instructions first: read project agent instructions,
   contribution docs, nearby package docs, and linter/type-checker config when
   they apply.
@@ -80,20 +86,25 @@ simplify testing, or clarify ownership.
 ## Workflow
 
 1. Inspect `git status` and the relevant diff before editing.
-2. Read the local conventions that govern the touched files.
-3. Identify behavior that must remain unchanged and any tests/checks that cover
+2. Spawn a fresh independent agent for the simplify pass when the host supports
+   it. Give it only the relevant files, diff, constraints, and validation
+   expectations. Ask it to apply high-confidence behavior-preserving cleanup or
+   report that no safe cleanup exists.
+3. Read the local conventions that govern the touched files.
+4. Identify behavior that must remain unchanged and any tests/checks that cover
    it.
-4. Apply small, readable simplifications; prefer explicit control flow over
+5. Apply small, readable simplifications; prefer explicit control flow over
    clever compression.
-5. Re-read the diff for semantic drift, especially mutation order, async
+6. Re-read the diff for semantic drift, especially mutation order, async
    ordering, defaults, nil/error handling, and public contracts.
-6. Run targeted searches for leftovers related to the changed concept: old
+7. Run targeted searches for leftovers related to the changed concept: old
    names, duplicated literals, duplicate validators/parsers, obsolete adapters,
    compatibility shims, defensive branches, and one-use wrappers.
-7. Run the smallest relevant validation: targeted tests first, then
+8. Run the smallest relevant validation: targeted tests first, then
    lint/type/build checks as appropriate for the repo.
-8. Summarize only meaningful simplifications, validation run, leftover searches
-   performed, and any intentionally skipped risky opportunities.
+9. Summarize only meaningful simplifications, validation run, leftover searches
+   performed, any intentionally skipped risky opportunities, and the independent
+   agent's final finding.
 
 ## Style Preferences
 
@@ -107,7 +118,9 @@ simplify testing, or clarify ownership.
 
 ## Verification
 
-For pure refactors, existing tests passing is usually enough. For medium-risk
-changes, add an independent review pass when available and ask it to look only
-for semantic drift. If automated coverage is missing, say what was checked
-manually and where residual risk remains.
+For pure refactors, existing tests passing is usually enough. The independent
+agent pass is mandatory when agent spawning is available; ask it to look for
+semantic drift, leftovers, shims, unnecessary wrappers, duplicated sources of
+truth, and risky cleanup opportunities it intentionally declines. If automated
+coverage is missing, say what was checked manually and where residual risk
+remains.

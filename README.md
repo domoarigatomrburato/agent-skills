@@ -4,9 +4,9 @@ Personal, portable agent skills.
 
 ## Skills
 
-- `simplify` - Simplify existing code while preserving exact behavior, with a
-  bias toward removing leftover shims, duplicate sources of truth, and
-  unnecessary wrappers.
+- `simplify` - Simplify existing code while preserving exact behavior, using a
+  fresh independent agent pass when supported, with a bias toward removing
+  leftover shims, duplicate sources of truth, and unnecessary wrappers.
 
 ## Install
 
