@@ -146,14 +146,27 @@ that test pass without speculating far beyond it.
 
 The simplify pass is mandatory in both entry modes.
 
-When the host supports subagents, delegated agents, or independent reviewer
-agents, run the simplify pass through a fresh independent agent. Treat an
-explicit invocation of this skill as permission to spawn that agent for this
-pass. Do not reuse an agent with prior task history.
+When you are the main agent applying Santommaso and the host supports
+subagents, delegated agents, or independent reviewer agents, run the simplify
+pass through a fresh independent agent. Treat an explicit invocation of this
+skill as permission to spawn that agent for this pass. Do not reuse an agent
+with prior task history.
+
+When you are the spawned simplify agent, this requirement is already satisfied.
+Do not try to spawn another agent. Your independence comes from being freshly
+spawned for this pass, so review and simplify directly within the assigned
+scope.
 
 Give the agent only the relevant files, diff, local constraints, expected
 behavior, and validation expectations. Avoid leaking your intended answer or
 prior conclusions unless the agent needs them to understand the task.
+
+When delegating, make the role explicit:
+
+```text
+You are the required fresh independent simplify agent for this Santommaso pass.
+Do not spawn another agent; review and simplify directly within the assigned scope.
+```
 
 Ask the agent to either apply high-confidence behavior-preserving cleanup
 within the assigned scope, or report that no safe cleanup exists. It should look
