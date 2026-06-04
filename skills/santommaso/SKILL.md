@@ -148,27 +148,58 @@ The simplify pass is mandatory in both entry modes.
 
 When you are the main agent applying Santommaso and the host supports
 subagents, delegated agents, or independent reviewer agents, run the simplify
-pass through a fresh independent agent. Treat an explicit invocation of this
-skill as permission to spawn that agent for this pass. Do not reuse an agent
-with prior task history.
+pass by spawning a fresh independent reviewer with the host's default available
+agent configuration. Treat an explicit invocation of this skill as permission
+to spawn that reviewer for this pass. Do not specify or force a custom agent
+name, agent type, model label, or role identifier; put the role only in the
+task prompt. Do not reuse an agent with prior task history.
 
-When you are the spawned simplify agent, this requirement is already satisfied.
-Do not try to spawn another agent. Your independence comes from being freshly
+Default to a fresh reviewer that receives only a compact reviewer packet, not
+the full parent conversation. Use any context-fork or thread-inheritance option
+only when earlier user decisions or requirements cannot be reconstructed
+compactly. Even then, include the reviewer packet and tell the reviewer that the
+packet is the source of truth; inherited context is only supporting material.
+
+When you are the spawned reviewer, this requirement is already satisfied. Do
+not try to spawn another agent. Your independence comes from being freshly
 spawned for this pass, so review and simplify directly within the assigned
 scope.
 
-Give the agent only the relevant files, diff, local constraints, expected
-behavior, and validation expectations. Avoid leaking your intended answer or
-prior conclusions unless the agent needs them to understand the task.
-
-When delegating, make the role explicit:
+Before delegating, distill the current context into a reviewer packet. Keep it
+brief and factual; avoid leaking your intended answer or prior conclusions
+unless the reviewer needs them to understand the task. Prefer file paths,
+commands, and constraints over broad narrative. When the reviewer can inspect
+the workspace, pass changed files and the exact diff command instead of pasting
+a large diff. Use the bundled helper to draft the git-derived fields:
 
 ```text
-You are the required fresh independent simplify agent for this Santommaso pass.
+python3 <skill-dir>/scripts/reviewer_packet.py [--base HEAD] [--scope path ...]
+```
+
+Use `--include-diff` only when the reviewer cannot inspect the workspace
+directly.
+
+The packet should include:
+
+- scope
+- changed files
+- behavior that must be preserved
+- local constraints and validation expectations
+- diff summary or exact diff command
+- tests or commands already run
+- known risk areas
+- desired reviewer output contract
+
+When delegating, put the role in the prompt text, not in tool metadata:
+
+```text
+Your role for this task is the fresh independent reviewer for a Santommaso simplify pass.
+Use the reviewer packet as the source of truth.
+Do not apply Santommaso recursively.
 Do not spawn another agent; review and simplify directly within the assigned scope.
 ```
 
-Ask the agent to either apply high-confidence behavior-preserving cleanup
+Ask the reviewer to either apply high-confidence behavior-preserving cleanup
 within the assigned scope, or report that no safe cleanup exists. It should look
 for:
 
