@@ -94,6 +94,14 @@ def fenced(text: str) -> str:
     return f"```text\n{text.rstrip()}\n```"
 
 
+def flatten_scope(scope_groups: list[list[str]]) -> list[str]:
+    return [
+        item
+        for group in scope_groups
+        for item in group
+    ]
+
+
 def build_packet(args: argparse.Namespace) -> str:
     cwd = Path(args.cwd).resolve()
     repo = find_repo(cwd)
@@ -226,8 +234,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--scope",
         nargs="*",
+        action="append",
         default=[],
-        help="Optional files or directories that bound the reviewer scope.",
+        help=(
+            "Optional files or directories that bound the reviewer scope. "
+            "May be repeated."
+        ),
     )
     parser.add_argument(
         "--include-diff",
@@ -251,7 +263,9 @@ def parse_args() -> argparse.Namespace:
         default=os.getcwd(),
         help="Directory used to locate the git repository. Defaults to current directory.",
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+    args.scope = flatten_scope(args.scope)
+    return args
 
 
 def main() -> None:

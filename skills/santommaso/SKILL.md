@@ -1,53 +1,32 @@
 ---
 name: santommaso
-description: Self-contained test-first and simplify workflow. Use when the user asks for santommaso, usual mode, TDD plus simplify, careful behavior-changing work, bug fixes with tests, or existing-code cleanup that must preserve behavior. Requires a fresh independent simplify agent when the host supports agents.
+description: Santommaso red-green plus independent simplify pass. Use for requested santommaso/usual mode, behavior changes, bug fixes needing public-behavior tests, and behavior-preserving cleanup of existing code or active diffs. Requires a fresh independent simplify reviewer when subagents exist.
 ---
 
 # Santommaso
 
 ## Purpose
 
-Prove the behavior, then doubt the implementation.
+Prove behavior, then doubt implementation.
 
-Use this skill to make changes with evidence and restraint: add or change
-behavior through vertical test-driven slices, then run a behavior-preserving
-simplification pass with a fresh independent agent when the host supports one.
+Use this self-contained workflow to change code through vertical red-green
+slices, then simplify only what can be proven behavior-preserving. Do not rely
+on separate `tdd`, `simplify`, or similarly named skills being installed.
 
-This skill is self-contained. Do not rely on separate `tdd`, `simplify`, or
-similarly named skills being installed.
+## Mode Choice
 
-## Entry Modes
+- **Behavior Change Mode**: use when adding behavior, changing behavior, or
+  fixing a bug.
+- **Existing Code Mode**: use when the behavior already exists and the user
+  asks to simplify, clean up, de-cruft, review, or refine an implementation or
+  active diff.
 
-Choose the mode from the user's request and the current worktree.
+Before editing, name the mode, the public surface in scope, and the behavior
+that must either change or remain unchanged. If Existing Code Mode has no
+meaningful code change and the user named no target, offer a few concrete focus
+areas instead of choosing silently.
 
-### Behavior Change Mode
-
-Use this mode when adding behavior, changing behavior, or fixing a bug.
-
-Work in vertical slices:
-
-1. Write one public-behavior test that fails for the next desired behavior.
-2. Implement the smallest useful change that makes it pass.
-3. Repeat for the next behavior.
-4. Refactor only while tests are green.
-5. Run the independent simplify pass.
-
-### Existing Code Mode
-
-Use this mode when the behavior already exists and the user asks to simplify,
-clean up, de-cruft, review, or refine an implementation or active diff.
-
-Do not force artificial failing tests. Instead:
-
-1. Inspect `git status`, the relevant diff, and any code area the user named.
-2. Identify the behavior, public contracts, side effects, and ordering that
-   must remain unchanged.
-3. Use existing tests as the baseline when they cover the behavior.
-4. Add characterization tests only when the behavior is risky, under-covered,
-   and testable through a public interface.
-5. Run the independent simplify pass.
-
-## Hard Invariants
+## Hard Rules
 
 - Follow local project instructions first, including contribution docs, nearby
   package docs, validation guidance, and commit/push rules.
@@ -56,8 +35,8 @@ Do not force artificial failing tests. Instead:
 - Preserve exact behavior outside the requested change: features, public API,
   side effects, ordering, defaults, error semantics, persistence format, and
   user-visible output.
-- Tests must verify behavior through public interfaces, not implementation
-  details.
+- Verify behavior through public interfaces or user-observable surfaces, not
+  private methods or incidental implementation shape.
 - Refactor only while the relevant tests are green.
 - Do not add compatibility shims, broad defensive branches, suppressions,
   baselines, wrapper layers, or obsolete legacy paths to make progress look
@@ -69,108 +48,92 @@ Do not force artificial failing tests. Instead:
 - Keep the work focused on the requested behavior, active diff, named files, or
   one tightly related ownership boundary.
 
-## TDD Philosophy
+## Behavior Change Mode
+
+Work in vertical red-green slices. Do not write all tests first and then all
+implementation.
+
+1. Read the local instructions and the domain docs that govern the touched
+   area. Continue only after the relevant local rules and validation
+   expectations are known.
+2. Identify the smallest meaningful tracer-bullet behavior through a public
+   interface or user-observable surface. Continue only when the next slice can
+   be stated as one behavior.
+3. Write one failing test for that behavior and run the narrowest command that
+   demonstrates the failure. Continue only when the test is red for the
+   expected reason, or when the behavior is not automatable and the manual
+   verification reason is recorded before implementation.
+4. Implement the smallest useful change that makes that test pass. Continue
+   only when the same narrow command is green and no speculative behavior has
+   been added.
+5. Repeat steps 2-4 for each remaining behavior. Continue only when every
+   requested behavior has automated evidence or documented manual verification.
+6. Refactor while green when the new code reveals duplication, unclear names,
+   poor boundaries, or a deeper module opportunity. Continue only after the
+   relevant tests still pass.
+7. Run the independent simplify pass, integrate only high-confidence findings,
+   then perform the leftover sweep.
+8. Run scope-appropriate validation and any additional local checks required
+   before handoff, commit, push, or release.
+
+## Existing Code Mode
+
+Use Existing Code Mode to preserve behavior while simplifying or reviewing
+code. Do not force artificial failing tests.
+
+1. Read the local instructions and the domain docs that govern the touched
+   area, then inspect `git status`, the relevant diff, and any code area the
+   user named. Continue only when the review boundary and current changes are
+   known.
+2. Identify the behavior that must remain unchanged, including public
+   contracts, side effects, persistence format, async ordering, nil/error
+   handling, and defaults. Continue only when those invariants cover the
+   changed area.
+3. Check whether existing tests cover those invariants. Add characterization
+   tests only when the behavior is risky, under-covered, and testable through a
+   public interface. Continue only when the coverage decision is explicit.
+4. Run the independent simplify pass and integrate only high-confidence
+   behavior-preserving findings.
+5. Re-read the diff for semantic drift, then perform the leftover sweep.
+6. Run scope-appropriate validation and any additional local checks required
+   before handoff, commit, push, or release.
+
+## Test Standards
 
 Good tests describe what the system does. They exercise real code paths through
-public APIs or user-observable surfaces. They should survive internal refactors
-because they do not care how the result is implemented.
+public APIs or user-observable surfaces and should survive internal refactors.
 
-Bad tests describe the shape of an implementation. They mock internal
-collaborators unnecessarily, test private methods, assert incidental call
-order, or verify state by bypassing the interface the product actually exposes.
-If a test fails when behavior is unchanged, it was probably testing the wrong
-thing.
+Bad tests describe implementation shape: unnecessary internal mocks, private
+method assertions, incidental call order, or state checks that bypass the
+product surface. If a test fails when behavior is unchanged, it was probably
+testing the wrong thing.
 
 Prefer integration-style tests when practical. Use smaller unit tests when the
 public interface is already narrow and the behavior is meaningful at that
 level.
 
-## Anti-Pattern: Horizontal Slices
-
-Do not write all tests first and then all implementation.
-
-That is horizontal slicing. It tends to produce tests for imagined behavior,
-locks in premature API shape, and outruns what the implementation is teaching
-you.
-
-Use vertical slices instead:
-
-```text
-RED:   write one failing behavior test
-GREEN: implement enough to pass it
-REPEAT: choose the next behavior from what you learned
-```
-
-Each test should confirm one behavior. Each implementation step should make
-that test pass without speculating far beyond it.
-
-## Behavior Change Workflow
-
-1. Read the local instructions and the domain docs that govern the touched
-   area.
-2. Identify the public interface or user-observable behavior that should
-   change.
-3. Choose the smallest meaningful tracer-bullet behavior.
-4. Write one failing test for that behavior.
-5. Run the narrowest command that demonstrates the failure.
-6. Implement the smallest useful change that makes the test pass.
-7. Run the narrowest command that demonstrates the pass.
-8. Repeat for the next behavior only after the previous slice is green.
-9. Refactor while green when the new code reveals duplication, unclear names,
-   poor boundaries, or a deeper module opportunity.
-10. Run the independent simplify pass.
-11. Integrate only high-confidence findings.
-12. Run scope-appropriate validation and follow any additional local
-    instructions required before handoff, commit, push, or release.
-
-## Existing Code Workflow
-
-1. Read the local instructions and the domain docs that govern the touched
-   area.
-2. Inspect `git status` and the relevant diff before editing.
-3. If there is no meaningful code change and the user did not name a target,
-   offer a few concrete focus areas rather than choosing silently.
-4. Identify behavior that must remain unchanged, including side effects,
-   persistence format, async ordering, nil/error handling, and public
-   contracts.
-5. Check whether existing tests cover that behavior.
-6. Add characterization tests only when they reduce real risk and can be
-   expressed through a public interface.
-7. Run the independent simplify pass.
-8. Integrate only high-confidence behavior-preserving findings.
-9. Re-read the diff for semantic drift.
-10. Run scope-appropriate validation and follow any additional local
-    instructions required before handoff, commit, push, or release.
-
 ## Independent Simplify Pass
 
-The simplify pass is mandatory in both entry modes.
+The simplify pass is mandatory in both modes.
 
 When you are the main agent applying Santommaso and the host supports
-subagents, delegated agents, or independent reviewer agents, run the simplify
-pass by spawning a fresh independent reviewer with the host's default available
-agent configuration. Treat an explicit invocation of this skill as permission
-to spawn that reviewer for this pass. Do not specify or force a custom agent
-name, agent type, model label, or role identifier; put the role only in the
-task prompt. Do not reuse an agent with prior task history.
+subagents, delegated agents, or independent reviewer agents, spawn a fresh
+independent reviewer with the host's default available agent configuration.
+Treat explicit Santommaso invocation as permission to spawn that reviewer for
+this pass. Do not specify or force a custom agent name, agent type, model
+label, or role identifier; put the role only in the task prompt. Do not reuse
+an agent with prior task history.
 
-Default to a fresh reviewer that receives only a compact reviewer packet, not
-the full parent conversation. Use any context-fork or thread-inheritance option
-only when earlier user decisions or requirements cannot be reconstructed
-compactly. Even then, include the reviewer packet and tell the reviewer that the
-packet is the source of truth; inherited context is only supporting material.
+If no independent agent mechanism is available, say that Santommaso cannot be
+fully applied in its required form before doing any local-only fallback.
 
-When you are the spawned reviewer, this requirement is already satisfied. Do
-not try to spawn another agent. Your independence comes from being freshly
-spawned for this pass, so review and simplify directly within the assigned
-scope.
+When you are the spawned reviewer, do not spawn another agent. Review and
+simplify directly within the assigned scope.
 
-Before delegating, distill the current context into a reviewer packet. Keep it
-brief and factual; avoid leaking your intended answer or prior conclusions
-unless the reviewer needs them to understand the task. Prefer file paths,
-commands, and constraints over broad narrative. When the reviewer can inspect
-the workspace, pass changed files and the exact diff command instead of pasting
-a large diff. Use the bundled helper to draft the git-derived fields:
+Before delegating, build a compact reviewer packet. Prefer file paths,
+commands, constraints, and an exact diff command over pasted diffs when the
+reviewer can inspect the workspace. Use the bundled helper to draft the
+git-derived fields:
 
 ```text
 python3 <skill-dir>/scripts/reviewer_packet.py [--base HEAD] [--scope path ...]
@@ -179,7 +142,7 @@ python3 <skill-dir>/scripts/reviewer_packet.py [--base HEAD] [--scope path ...]
 Use `--include-diff` only when the reviewer cannot inspect the workspace
 directly.
 
-The packet should include:
+The packet must include:
 
 - scope
 - changed files
@@ -190,7 +153,7 @@ The packet should include:
 - known risk areas
 - desired reviewer output contract
 
-When delegating, put the role in the prompt text, not in tool metadata:
+Delegate with the role in the prompt text:
 
 ```text
 Your role for this task is the fresh independent reviewer for a Santommaso simplify pass.
@@ -199,67 +162,36 @@ Do not apply Santommaso recursively.
 Do not spawn another agent; review and simplify directly within the assigned scope.
 ```
 
-Ask the reviewer to either apply high-confidence behavior-preserving cleanup
-within the assigned scope, or report that no safe cleanup exists. It should look
-for:
+Ask the reviewer to apply high-confidence behavior-preserving cleanup within
+the assigned scope, or report that no safe cleanup exists. The simplify pass is
+complete only after the reviewer returns one of those outcomes, any accepted
+edits are revalidated, and skipped opportunities are recorded with their risk.
+
+## Simplify And Sweep Checklist
+
+Prefer fewer high-confidence changes over broad speculative cleanup. Search the
+changed area and directly adjacent callers/callees for:
 
 - semantic drift in mutation order, async ordering, defaults, nil/error
   handling, persistence, and public contracts
-- compatibility shims, obsolete adapters, leftover legacy paths, and defensive
-  branches made unnecessary by the current change
+- compatibility shims, obsolete adapters, leftover legacy paths, and
+  unnecessary defensive branches
 - duplicate sources of truth, duplicate validators/parsers, duplicated labels,
-  and repeated calculations
-- redundant wrappers, pass-through components, useless subcomponents, and
-  one-use helpers
+  repeated calculations, subscriptions, refreshes, effects, and state mirrors
+- redundant wrappers, pass-through components, useless subcomponents,
+  one-use helpers, and abstractions that hide rather than clarify
 - custom code that the language, framework, standard library, or project
   utilities already solve cleanly
-- vague names, unnecessary temporaries, obvious comments, and abstractions that
-  hide rather than clarify
-- split files or extensions that only disguise a do-it-all object without
-  improving ownership
-
-If no independent agent mechanism is available, say that this skill cannot be
-fully applied in its required form before doing any local-only fallback.
-
-## What To Simplify
-
-Prefer fewer high-confidence changes over broad speculative cleanup.
-
-Look for incidental complexity, especially:
-
-- redundant wrappers, pass-through components, useless subcomponents, and
-  one-use helpers
-- duplicated labels, derived values, calculations, refreshes, effects,
-  subscriptions, and state mirrors
-- over-nested conditionals, nested ternaries, callback pyramids, and
-  hard-to-follow control flow
-- stale names and concepts left behind by the current change
-- unnecessary abstraction around a single call site
-- repeated orchestration that can become a deeper module without widening the
-  public surface
+- over-nested conditionals, nested ternaries, callback pyramids, vague names,
+  unnecessary temporaries, and obvious comments
+- stale concept names, literals, comments, and split files or extensions left
+  behind by the current change
 
 Keep abstractions that name real domain concepts, isolate side effects,
-simplify testing, or clarify ownership.
-
-## Leftover Sweep
-
-Before declaring done, search the changed area and directly adjacent
-callers/callees for leftovers related to the current change:
-
-- old concept names
-- duplicated literals
-- duplicate validators or parsers
-- obsolete adapters
-- compatibility shims
-- unnecessary defensive branches
-- duplicate sources of truth
-- one-use wrappers
-- comments that describe code that no longer exists
-
-Prefer small follow-on edits when they remove leftovers within the same
-ownership boundary or directly adjacent call sites. Report, rather than edit,
-opportunities that cross a larger architectural boundary, change public
-behavior, require a broad migration, or are not clearly covered by tests.
+simplify testing, or clarify ownership. Apply small follow-on edits within the
+same ownership boundary or directly adjacent call sites. Report opportunities
+that cross a larger architectural boundary, change public behavior, require a
+broad migration, or are not clearly covered by tests.
 
 ## Validation
 
@@ -269,7 +201,7 @@ confidence.
 - In Behavior Change Mode, demonstrate the red failure before the green pass
   when practical.
 - In Existing Code Mode, existing tests passing is often enough for pure
-  refactors, unless the touched behavior is risky or under-covered.
+  refactors unless the touched behavior is risky or under-covered.
 - Follow local project instructions for any additional checks required before
   handoff, commit, push, or release.
 - Do not invent repo-wide validation where the project does not define it.
@@ -278,14 +210,14 @@ confidence.
 
 ## Reporting
 
-Summarize only the useful facts:
+Report only the useful facts:
 
 - behavior added, changed, fixed, or preserved
 - tests added or used as characterization
 - meaningful simplifications integrated
 - leftover searches performed
 - validation run
-- independent agent's final finding
+- independent reviewer's final finding
 - skipped risky opportunities, if any
 
 Keep the report proportional to the work. Do not narrate every internal step.
