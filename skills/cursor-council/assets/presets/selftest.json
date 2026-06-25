@@ -1,0 +1,35 @@
+{
+  "name": "selftest",
+  "rounds": 2,
+  "stop_condition": "Exercise the blackboard plumbing with two recorded turns and one recorded final.",
+  "seats": {
+    "gpt": {
+      "model": "gpt-5.4-xhigh"
+    },
+    "sonnet": {
+      "model": "claude-4.6-sonnet-medium-thinking"
+    }
+  },
+  "turns": [
+    {
+      "name": "alpha",
+      "seat": "gpt",
+      "role": "writer",
+      "round": 1,
+      "instruction": "Return exactly `alpha turn`."
+    },
+    {
+      "name": "beta",
+      "seat": "sonnet",
+      "role": "critic",
+      "round": 2,
+      "instruction": "Return exactly `beta turn`."
+    }
+  ],
+  "final": {
+    "name": "omega",
+    "seat": "gpt",
+    "role": "synthesizer",
+    "instruction": "Return exactly `final turn`."
+  }
+}

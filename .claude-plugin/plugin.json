@@ -1,7 +1,7 @@
 {
   "name": "DomoArigatoMrBurato-skills",
   "skills": [
-    "./skills/agents-roundtable",
+    "./skills/cursor-council",
     "./skills/santommaso",
     "./skills/simplify"
   ]

@@ -1,0 +1,45 @@
+{
+  "name": "review",
+  "rounds": 2,
+  "stop_condition": "Map the review target once, run one parallel critique round, then synthesize prioritized findings with residual risk and test gaps.",
+  "seats": {
+    "gpt": {
+      "model": "gpt-5.4-xhigh"
+    },
+    "opus": {
+      "model": "claude-opus-4-8-thinking-xhigh"
+    },
+    "sonnet": {
+      "model": "claude-4.6-sonnet-medium-thinking"
+    }
+  },
+  "turns": [
+    {
+      "name": "target-map",
+      "seat": "gpt",
+      "role": "mapper",
+      "round": 1,
+      "instruction": "Map the target of the review. Summarize what changed or what subsystem is under review, identify the likely failure surface, and note the tests or evidence that should exist before anyone trusts the change."
+    },
+    {
+      "name": "correctness-critique",
+      "seat": "opus",
+      "role": "critic",
+      "round": 2,
+      "instruction": "Review for correctness, regressions, missing edge cases, unsafe assumptions, and places where the implementation and tests appear to disagree. Prioritize user-visible or merge-blocking problems."
+    },
+    {
+      "name": "maintainability-critique",
+      "seat": "sonnet",
+      "role": "critic",
+      "round": 2,
+      "instruction": "Review for maintainability, clarity, naming, ownership boundaries, and whether the code or plan is harder to change safely than it needs to be. Call out missing tests when they materially raise risk."
+    }
+  ],
+  "final": {
+    "name": "review-summary",
+    "seat": "opus",
+    "role": "synthesizer",
+    "instruction": "Produce a final review for the user. Lead with findings ordered by severity, ground them in concrete behavior, mention residual risk and test gaps, and keep the summary brief if there are no issues."
+  }
+}
