@@ -1,0 +1,58 @@
+{
+  "name": "research-dossier-mock-roundtable",
+  "max_rounds": 1,
+  "stop_condition": "Stop after one mock evidence-matrix cycle and final synthesis.",
+  "budget": {
+    "turn_timeout_seconds": 60,
+    "max_prompt_chars": 80000
+  },
+  "agents": {
+    "mock_evidence": {
+      "provider": "mock",
+      "output_format": "text"
+    },
+    "mock_auditor": {
+      "provider": "mock",
+      "output_format": "json",
+      "extract_paths": ["text"]
+    },
+    "mock_synthesizer": {
+      "provider": "mock",
+      "output_format": "stream-json",
+      "extract_paths": ["text"]
+    }
+  },
+  "artifacts": {
+    "include": []
+  },
+  "turns": [
+    {
+      "name": "evidence-matrix",
+      "agent": "mock_evidence",
+      "role": "evidence-builder",
+      "mode": "discuss",
+      "instruction": "Produce a mock evidence matrix with explicit source and confidence fields."
+    },
+    {
+      "name": "source-audit",
+      "agent": "mock_auditor",
+      "role": "source-auditor",
+      "mode": "discuss",
+      "instruction": "Audit the mock evidence matrix for unsupported claims and missing unknowns."
+    },
+    {
+      "name": "enterprise-critique",
+      "agent": "mock_auditor",
+      "role": "critic",
+      "mode": "discuss",
+      "instruction": "Critique the mock dossier as an enterprise decision artifact."
+    }
+  ],
+  "final": {
+    "name": "final-dossier",
+    "agent": "mock_synthesizer",
+    "role": "synthesizer",
+    "mode": "final",
+    "instruction": "Synthesize the mock dossier into a final document."
+  }
+}

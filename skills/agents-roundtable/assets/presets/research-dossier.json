@@ -1,0 +1,61 @@
+{
+  "name": "research-dossier-roundtable",
+  "max_rounds": 1,
+  "stop_condition": "Stop after one evidence-matrix cycle and final synthesis. The final must mark the dossier incomplete when shortlisted items lack source-backed status, deployment model, data exposure, integration surface, and confidence.",
+  "budget": {
+    "turn_timeout_seconds": 1200,
+    "max_prompt_chars": 140000
+  },
+  "agents": {
+    "codex": {
+      "provider": "command",
+      "command": ["codex", "exec", "--sandbox", "read-only", "--skip-git-repo-check", "--cd", "{run_dir}", "-"],
+      "input": "stdin",
+      "output_format": "text"
+    },
+    "cursor_opus": {
+      "provider": "command",
+      "command": ["cursor-agent", "--print", "--output-format", "json", "--mode", "ask", "--trust", "--workspace", "{run_dir}"],
+      "input": "argument",
+      "output_format": "json",
+      "extract_paths": ["result", "text", "message.content", "message.content.0.text", "content.0.text", "response", "output"],
+      "markers": {
+        "start": "<roundtable-output>",
+        "end": "</roundtable-output>"
+      }
+    }
+  },
+  "artifacts": {
+    "include": []
+  },
+  "turns": [
+    {
+      "name": "evidence-matrix",
+      "agent": "codex",
+      "role": "evidence-builder",
+      "mode": "discuss",
+      "instruction": "Build a source-backed evidence matrix for the requested investigation. For every shortlisted item include category, support/applicability, deployment or operating model, data exposure or trust boundary, integration surface, cost/licensing caveat when relevant, source URL or explicit unknown, and confidence. Separate confirmed facts, inferences, assumptions, and open questions. Do not produce a recommendation yet."
+    },
+    {
+      "name": "source-audit",
+      "agent": "cursor_opus",
+      "role": "source-auditor",
+      "mode": "discuss",
+      "instruction": "Audit the evidence matrix. Challenge weak, stale, vendor-only, or unsupported claims; identify missing official sources; mark unknowns that were filled with confident prose; and propose corrections. Put only the substantive audit inside the configured roundtable-output markers."
+    },
+    {
+      "name": "enterprise-critique",
+      "agent": "cursor_opus",
+      "role": "critic",
+      "mode": "discuss",
+      "instruction": "Critique the corrected dossier as an enterprise decision artifact. Focus on risk, cost, operating model, adoption failure modes, data exposure, and decision gates. Preserve unresolved disagreements. Put only the substantive critique inside the configured roundtable-output markers."
+    }
+  ],
+  "final": {
+    "name": "final-dossier",
+    "agent": "codex",
+    "role": "synthesizer",
+    "mode": "final",
+    "instruction": "Produce the human-facing final Markdown dossier. Include Executive Summary, Evidence Summary table, Recommendation, Shortlist With Confidence, Unknowns, Decision Gates, What To Verify Next, and Patch Or Instructions. Do not introduce factual claims unless they appeared in the evidence matrix or are clearly marked as inference or assumption."
+  }
+}

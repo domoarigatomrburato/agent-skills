@@ -1,6 +1,6 @@
 ---
 name: agents-roundtable
-description: Coordinate multiple headless coding or research agents through a disk blackboard, then synthesize a final Markdown document. Use when the user asks for a roundtable, panel, adversarial multi-agent review, research document, architecture critique, or recovery from a prior roundtable run.
+description: Coordinate multiple headless coding or research agents through a disk blackboard, then synthesize a final Markdown document. Use when the user asks for a roundtable, panel, adversarial multi-agent review, source-backed research dossier, architecture critique, or recovery from a prior roundtable run.
 ---
 
 # Agents Roundtable
@@ -34,6 +34,9 @@ normalized turn notes, transcript files, artifacts, and `final.md`.
 
 1. Interpret the human request and write a concise brief.
 2. Pick a preset from `assets/presets/` or generate a small JSON config.
+   Use `research-dossier` for source-backed investigations that need an
+   evidence matrix before recommendation; read
+   `references/research-dossier.md` before running it.
 3. Invoke this skill's runtime by path and pass the target project as
    `--workdir`.
 4. Inspect turn markdown plus raw stdout/stderr before trusting the transcript.
@@ -89,4 +92,6 @@ Keep the run directory intact as the audit trail.
 
 - `references/arbiter.md`: host-agent operating procedure.
 - `references/providers.md`: config shape and provider guidance.
+- `references/research-dossier.md`: evidence-matrix workflow for source-backed
+  research.
 - `references/recovery.md`: retry, dirty-output, and finalization workflow.

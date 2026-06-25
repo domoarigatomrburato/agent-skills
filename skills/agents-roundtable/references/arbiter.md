@@ -10,6 +10,7 @@ and subprocess work.
 2. Choose a preset:
    - `mock`: validate the blackboard without external CLIs.
    - `research`: produce a research document.
+   - `research-dossier`: produce source-backed research with an evidence matrix.
    - `code-review`: review code or active changes.
    - `architecture-review`: critique a design or technical plan.
 3. Run the installed skill runtime by path. Do not change into the skill

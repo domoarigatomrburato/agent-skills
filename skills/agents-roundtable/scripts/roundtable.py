@@ -571,7 +571,31 @@ def command_resolves(command: str, cwd: Path) -> bool:
 def mock_stdout(agent: Dict[str, Any], turn: Dict[str, Any], prompt: str) -> str:
     role = turn["role"].lower()
     prompt_size = len(prompt)
-    if "critic" in role:
+    if "evidence" in role:
+        response = f"""# Mock Evidence Matrix
+
+| Item | Category | Support | Deployment | Data Exposure | Integration | Source | Confidence |
+|---|---|---|---|---|---|---|---|
+| Mock Tool A | deterministic | supported | CI job | repository diff | merge request report | https://example.invalid/tool-a | medium |
+| Mock Tool B | AI reviewer | unknown | SaaS or self-hosted unknown | unknown | merge request comments | unknown | low |
+
+## Open Questions
+- Mock Tool B requires source-backed deployment and data-flow verification.
+
+_mock prompt chars: {prompt_size}_"""
+    elif "auditor" in role:
+        response = f"""# Mock Source Audit
+
+## Corrections
+- Keep Mock Tool B as `unknown`; do not infer self-hosted support without a source.
+- Preserve source URLs beside each claim.
+
+## Completion Status
+- The dossier is usable as a format smoke test.
+- The dossier is not complete research because mock sources are not evidence.
+
+_mock prompt chars: {prompt_size}_"""
+    elif "critic" in role:
         response = f"""# Mock Critique
 
 ## Agreements
