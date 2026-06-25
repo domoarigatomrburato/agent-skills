@@ -64,6 +64,24 @@ Known slugs at authoring time:
 The Task tool's own allowed-model list is the source of truth if Cursor changes.
 Keep the presets aligned with that list instead of inventing slugs.
 
+## Cheap Mode
+
+Pass `--cheap` to `start` to bind every seat to `composer-2.5` while keeping the
+preset's turn order, roles, and instructions. The run's `config.json` records
+`model_profile: cheap`, and the printed plan shows the overridden models.
+
+```bash
+python3 "$COUNCIL_SCRIPT" start \
+  --preset council \
+  --cheap \
+  --topic "<topic>" \
+  --workdir "$PROJECT_ROOT"
+```
+
+Cheap mode trades cross-model diversity for lower cost. Seats still differ by
+role and instruction; the chair should note in `final.md` that all seats used
+the same model.
+
 ## Prompt Construction
 
 The script does not build prompts. The chair does.

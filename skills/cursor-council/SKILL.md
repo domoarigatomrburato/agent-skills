@@ -29,6 +29,8 @@ what gets delivered to the user.
    [references/presets.md](references/presets.md) first; for source-backed
    investigations, also read
    [references/research-dossier.md](references/research-dossier.md).
+   Add `--cheap` to `start` when the user wants every seat on `composer-2.5`
+   instead of the preset's premium models.
 3. Run the helper script:
 
    ```bash
@@ -39,13 +41,20 @@ what gets delivered to the user.
      --preset council \
      --topic "<topic>" \
      --workdir "$PROJECT_ROOT"
+
+   # lower-cost run: all seats use composer-2.5
+   python3 "$COUNCIL_SCRIPT" start \
+     --preset council \
+     --cheap \
+     --topic "<topic>" \
+     --workdir "$PROJECT_ROOT"
    ```
 
 4. Read the printed plan. For each planned turn in a round:
    - build a prompt from `brief.md`, the relevant repository context, and the
      current `transcript.md`;
    - spawn one read-only Task subagent per turn;
-   - pass the seat's bound model exactly as declared in the preset;
+   - pass the seat's bound model exactly as declared in the run config;
    - give the subagent only that constructed prompt, not your own session
      history;
    - launch same-round turns in parallel when they are independent;
@@ -82,7 +91,8 @@ python3 "$COUNCIL_SCRIPT" inspect --run-dir "<run-dir>"
 - Seats are read-only. They deliberate and synthesize; they do not edit project
   files.
 - Different seats should use different models when the preset says so. If two
-  seats must share one model, say that explicitly in `final.md`.
+  seats must share one model, say that explicitly in `final.md`. Cheap runs
+  (`--cheap`) always share `composer-2.5`; disclose that in `final.md`.
 - Preserve disagreement. Do not smooth it away just to sound decisive.
 - `final.md` is the canonical output and stays in the run directory unless the
   user asks to promote it elsewhere.

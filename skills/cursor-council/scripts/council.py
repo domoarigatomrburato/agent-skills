@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
 DEFAULT_OUTPUT_ROOT = "/tmp/cursor-council"
+CHEAP_MODEL = "composer-2.5"
 
 
 class CouncilError(Exception):
@@ -35,6 +36,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--out",
         default=DEFAULT_OUTPUT_ROOT,
         help=f"output root for runs (default: {DEFAULT_OUTPUT_ROOT})",
+    )
+    start.add_argument(
+        "--cheap",
+        action="store_true",
+        help=f"bind every seat to {CHEAP_MODEL} instead of the preset's models",
     )
     start.set_defaults(handler=command_start)
 
@@ -79,6 +85,8 @@ def build_parser() -> argparse.ArgumentParser:
 def command_start(args: argparse.Namespace) -> int:
     config_path = resolve_preset(args.preset)
     config = load_config(config_path)
+    if args.cheap:
+        config = apply_cheap_mode(config)
     workdir = resolve_path(args.workdir)
     assert_dir(workdir, "workdir")
     output_root = resolve_path(args.out)
@@ -92,6 +100,8 @@ def command_start(args: argparse.Namespace) -> int:
 
     print(f"Run started: {run_dir}")
     print(f"Preset: {config_path}")
+    if config.get("model_profile") == "cheap":
+        print(f"Model profile: cheap (all seats -> {CHEAP_MODEL})")
     print(f"Brief: {run_dir / 'brief.md'}")
     print(f"Transcript: {run_dir / 'transcript.md'}")
     print("Planned turns:")
@@ -292,7 +302,7 @@ def validate_config(value: Any, source: Path) -> Dict[str, Any]:
     if final_turn["name"] in seen_names:
         raise CouncilError(f"final turn name `{final_turn['name']}` duplicates a planned turn")
 
-    return {
+    normalized: Dict[str, Any] = {
         "name": name,
         "stop_condition": stop_condition,
         "rounds": rounds,
@@ -300,6 +310,10 @@ def validate_config(value: Any, source: Path) -> Dict[str, Any]:
         "turns": normalized_turns,
         "final": final_turn,
     }
+    model_profile = config.get("model_profile")
+    if isinstance(model_profile, str) and model_profile.strip():
+        normalized["model_profile"] = model_profile.strip()
+    return normalized
 
 
 def validate_turn(
@@ -380,6 +394,13 @@ def ensure_run_dirs(run_dir: Path) -> None:
     (run_dir / "turns").mkdir(parents=True, exist_ok=True)
 
 
+def apply_cheap_mode(config: Dict[str, Any]) -> Dict[str, Any]:
+    for seat in config["seats"].values():
+        seat["model"] = CHEAP_MODEL
+    config["model_profile"] = "cheap"
+    return config
+
+
 def transcript_document(config: Dict[str, Any], run_dir: Path) -> str:
     sections = [
         "# Cursor Council Transcript",
@@ -388,8 +409,10 @@ def transcript_document(config: Dict[str, Any], run_dir: Path) -> str:
         f"- run_dir: {run_dir}",
         f"- rounds: {config['rounds']}",
         f"- stop_condition: {config['stop_condition']}",
-        "",
     ]
+    if config.get("model_profile"):
+        sections.append(f"- model_profile: {config['model_profile']}")
+    sections.extend(["", ""])
     for turn in config["turns"]:
         path = turn_output_path(run_dir, config, turn)
         if path.exists():
