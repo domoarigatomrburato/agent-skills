@@ -1,4 +1,0 @@
-interface:
-  display_name: "Inquisition"
-  short_description: "Isolated architecture + compliance audit"
-  default_prompt: "Use $inquisition in isolated mode to run Pass A (architecture), Pass B (compliance), and Pass C (judge synthesis) from intermediate report files."
