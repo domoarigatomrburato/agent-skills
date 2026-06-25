@@ -1,0 +1,61 @@
+{
+  "name": "research-roundtable",
+  "max_rounds": 2,
+  "stop_condition": "Stop after max_rounds and produce a final synthesis; do not infer automatic consensus.",
+  "budget": {
+    "turn_timeout_seconds": 900,
+    "max_prompt_chars": 120000
+  },
+  "agents": {
+    "codex": {
+      "provider": "command",
+      "command": ["codex", "exec", "--sandbox", "read-only", "--skip-git-repo-check", "--cd", "{run_dir}", "-"],
+      "input": "stdin",
+      "output_format": "text"
+    },
+    "cursor_opus": {
+      "provider": "command",
+      "command": ["cursor-agent", "--print", "--output-format", "json", "--mode", "ask", "--trust", "--workspace", "{run_dir}"],
+      "input": "argument",
+      "output_format": "json",
+      "extract_paths": ["result", "text", "message.content", "message.content.0.text", "content.0.text", "response", "output"],
+      "markers": {
+        "start": "<roundtable-output>",
+        "end": "</roundtable-output>"
+      }
+    }
+  },
+  "artifacts": {
+    "include": []
+  },
+  "turns": [
+    {
+      "name": "landscape",
+      "agent": "codex",
+      "role": "researcher",
+      "mode": "discuss",
+      "instruction": "Build the strongest factual landscape for the requested topic. Separate confirmed facts, assumptions, and open questions."
+    },
+    {
+      "name": "critique",
+      "agent": "cursor_opus",
+      "role": "critic",
+      "mode": "discuss",
+      "instruction": "Critique the landscape. Focus on weak evidence, hidden assumptions, missing alternatives, and enterprise or operational risks. Put only the substantive critique inside the configured roundtable-output markers."
+    },
+    {
+      "name": "revised-synthesis",
+      "agent": "codex",
+      "role": "synthesizer",
+      "mode": "discuss",
+      "instruction": "Reconcile the research and critique into a revised synthesis. Preserve unresolved disagreements explicitly."
+    }
+  ],
+  "final": {
+    "name": "final-synthesis",
+    "agent": "codex",
+    "role": "synthesizer",
+    "mode": "final",
+    "instruction": "Produce the final Markdown document for the user. Include Agreement, Disagreement or Uncertainty, Final Recommendation, and Next Actions."
+  }
+}
