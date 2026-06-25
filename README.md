@@ -9,6 +9,9 @@ CLI views can group the installed skills under `DomoArigatoMrBurato Skills`.
 
 - `agent-council` - Chair a harness-agnostic, read-only council of subagents
   with preflight, profiles, durable transcript, and a traceable `final.md`.
+- `inquisition` - Run an isolated three-pass codebase audit (architecture,
+  compliance, judge synthesis) and deliver a severity-ranked remediation
+  report with cross-referenced findings.
 - `simplify` - Simplify existing code while preserving exact behavior, using a
   fresh independent agent pass when supported, with a bias toward removing
   leftover shims, duplicate sources of truth, and unnecessary wrappers.
@@ -28,6 +31,12 @@ Install only `agent-council` for Universal + Claude Code:
 
 ```bash
 npx skills add domoarigatomrburato/agent-skills -g --skill agent-council --agent universal claude-code -y
+```
+
+Install only `inquisition`:
+
+```bash
+npx skills add domoarigatomrburato/agent-skills -g --skill inquisition --agent universal claude-code -y
 ```
 
 Install only `simplify`:
