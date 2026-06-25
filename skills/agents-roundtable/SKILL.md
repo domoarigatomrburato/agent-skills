@@ -38,7 +38,7 @@ normalized turn notes, transcript files, artifacts, and `final.md`.
    `--workdir`.
 4. Inspect turn markdown plus raw stdout/stderr before trusting the transcript.
 5. Retry or recover dirty/failed turns when useful.
-6. Finalize the run and deliver `final.md` with caveats.
+6. Finalize the run, read `final.md`, and deliver its substance with caveats.
 
 ## Commands
 
@@ -71,6 +71,19 @@ python3 "$ROUNDTABLE_SCRIPT" pack --run-dir "$RUN_DIR" --dest /tmp
 - Cursor-style preambles or follow-up offers should be removed only from the
   normalized transcript and marked dirty; raw logs stay intact.
 - Max rounds and stop conditions are explicit. Do not infer consensus.
+
+## Delivery
+
+The canonical output is always `<run-dir>/final.md`. After finalization, read
+that file and answer the user from it.
+
+Do not copy, move, commit, publish, or otherwise promote the final document
+outside the run directory unless the user asks or confirms. When the document is
+likely to be reused, offer to save a copy to a durable location chosen by the
+user, such as project documentation, a decision record, a ticket or issue, a
+pull request description, or another user-selected knowledge base.
+
+Keep the run directory intact as the audit trail.
 
 ## References
 

@@ -35,7 +35,8 @@ python3 "$ROUNDTABLE_SCRIPT" inspect --run-dir "<run-dir>"
 5. Read the turn markdown and raw logs for failures, dirty output, weak claims,
    or unresolved disagreement.
 6. Retry specific turns or finalize manually when needed.
-7. Deliver `final.md`, naming caveats and unresolved disagreement.
+7. Read `final.md` and deliver its substance, naming caveats and unresolved
+   disagreement.
 
 ## Blackboard Contract
 
@@ -60,6 +61,17 @@ artifacts/
 
 The normalized transcript is a convenience layer. Raw stdout/stderr are the
 audit trail.
+
+## Delivery
+
+`<run-dir>/final.md` is the canonical final output. Keep it in the run
+directory with the transcript, recovery notes, turns, prompts, stdout, stderr,
+and artifacts.
+
+Do not copy, move, commit, publish, or otherwise promote the final document
+outside the run directory unless the user asks or confirms. If the result is
+likely to become durable project or organizational knowledge, offer to save a
+copy to a destination the user chooses.
 
 ## Arbiter Decisions
 
