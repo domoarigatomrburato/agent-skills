@@ -38,7 +38,14 @@
       "agent": "mock_auditor",
       "role": "source-auditor",
       "mode": "discuss",
-      "instruction": "Audit the mock evidence matrix for unsupported claims and missing unknowns."
+      "instruction": "Audit the mock evidence matrix for unsupported claims and missing unknowns, and emit a citation-integrity verdict."
+    },
+    {
+      "name": "source-repair",
+      "agent": "mock_auditor",
+      "role": "source-repair",
+      "mode": "discuss",
+      "instruction": "Repair the mock evidence matrix using the audit verdict and log each citation correction."
     },
     {
       "name": "enterprise-critique",

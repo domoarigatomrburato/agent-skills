@@ -11,8 +11,11 @@ import os
 import re
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
+import threading
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
@@ -40,6 +43,7 @@ DEFAULT_DIRTY_PATTERNS = [
     "dimmi se vuoi che lo salvo",
     "tell me if you want me to save it",
 ]
+DEFAULT_HEARTBEAT_SECONDS = 30
 FINAL_TRANSCRIPT_FOOTER = re.compile(r"\n+# Final Output\n\nSee `final\.md`\.\s*\Z")
 IGNORED_DIRS = {
     ".git",
@@ -428,6 +432,15 @@ def execute_turn(
     paths = turn_paths(run_dir, turn_number, round_index, turn, recovery)
     write_text(paths["prompt"], prompt)
 
+    label = f"turn {turn_number} {turn['agent']}/{turn['role']}"
+    timeout_seconds = config["budget"]["turn_timeout_seconds"]
+    print(
+        f"[roundtable] {label}: start (mode={turn['mode']}, timeout={timeout_seconds}s)",
+        file=sys.stderr,
+        flush=True,
+    )
+    turn_start = time.monotonic()
+
     cwd = workdir if turn["mode"] == "apply" else run_dir
     try:
         argv, stdin_text = prepare_command(agent, prompt, paths["prompt"], run_dir, workdir, transcript_path)
@@ -440,7 +453,9 @@ def execute_turn(
             stdin_text=stdin_text,
             cwd=cwd,
             env=env,
-            timeout_seconds=config["budget"]["turn_timeout_seconds"],
+            timeout_seconds=timeout_seconds,
+            heartbeat_seconds=config["budget"]["heartbeat_seconds"],
+            label=label,
         )
     except RoundtableError as error:
         result = CommandResult(
@@ -454,6 +469,12 @@ def execute_turn(
     write_text(paths["stdout"], result.stdout)
     write_text(paths["stderr"], result.stderr)
     normalized = normalize_for_turn(result.stdout, agent, paths["stdout"])
+    print(
+        f"[roundtable] {label}: done in {int(time.monotonic() - turn_start)}s "
+        f"(exit={result.exit_code}, dirty={str(normalized.dirty).lower()})",
+        file=sys.stderr,
+        flush=True,
+    )
     turn_markdown = turn_markdown_document(
         config=config,
         turn=turn,
@@ -490,6 +511,8 @@ def run_provider(
     cwd: Path,
     env: Dict[str, str],
     timeout_seconds: int,
+    heartbeat_seconds: int,
+    label: str,
 ) -> CommandResult:
     if agent["provider"] == "mock":
         stdout = mock_stdout(agent, turn, prompt)
@@ -500,7 +523,15 @@ def run_provider(
             argv=["<mock-provider>", agent["name"], turn["role"]],
             cwd=cwd,
         )
-    return run_subprocess(argv, stdin_text, cwd, env, timeout_seconds)
+    return run_subprocess(
+        argv,
+        stdin_text,
+        cwd,
+        env,
+        timeout_seconds,
+        heartbeat_seconds=heartbeat_seconds,
+        label=label,
+    )
 
 
 def run_subprocess(
@@ -509,6 +540,9 @@ def run_subprocess(
     cwd: Path,
     env: Dict[str, str],
     timeout_seconds: int,
+    *,
+    heartbeat_seconds: int = 0,
+    label: str = "turn",
 ) -> CommandResult:
     if not argv:
         raise RoundtableError("cannot run an empty command")
@@ -521,42 +555,126 @@ def run_subprocess(
             cwd=cwd,
         )
     try:
-        completed = subprocess.run(
+        proc = subprocess.Popen(
             argv,
-            input=stdin_text,
+            stdin=subprocess.PIPE if stdin_text is not None else subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             cwd=str(cwd),
             env=env,
-            capture_output=True,
-            text=True,
-            timeout=timeout_seconds,
-            check=False,
-        )
-        return CommandResult(
-            exit_code=completed.returncode,
-            stdout=completed.stdout,
-            stderr=completed.stderr,
-            argv=argv,
-            cwd=cwd,
-        )
-    except subprocess.TimeoutExpired as error:
-        stdout = to_text(error.stdout)
-        stderr = to_text(error.stderr)
-        stderr = f"{stderr}\n[roundtable timeout after {timeout_seconds} seconds]".strip()
-        return CommandResult(
-            exit_code=124,
-            stdout=stdout,
-            stderr=stderr,
-            argv=argv,
-            cwd=cwd,
+            start_new_session=(os.name == "posix"),
         )
     except OSError as error:
         return CommandResult(
-            exit_code=1,
-            stdout="",
-            stderr=str(error),
-            argv=argv,
-            cwd=cwd,
+            exit_code=1, stdout="", stderr=str(error), argv=argv, cwd=cwd
         )
+
+    stdout_chunks: List[bytes] = []
+    stderr_chunks: List[bytes] = []
+    readers = [
+        threading.Thread(target=drain_stream, args=(proc.stdout, stdout_chunks), daemon=True),
+        threading.Thread(target=drain_stream, args=(proc.stderr, stderr_chunks), daemon=True),
+    ]
+    for reader in readers:
+        reader.start()
+    writer: Optional[threading.Thread] = None
+    if stdin_text is not None and proc.stdin is not None:
+        writer = threading.Thread(target=feed_stream, args=(proc.stdin, stdin_text), daemon=True)
+        writer.start()
+
+    timed_out = wait_with_heartbeat(
+        proc,
+        timeout_seconds=timeout_seconds,
+        heartbeat_seconds=heartbeat_seconds,
+        label=label,
+        stdout_chunks=stdout_chunks,
+    )
+    if timed_out:
+        kill_process_tree(proc)
+
+    for reader in readers:
+        reader.join()
+    if writer is not None:
+        writer.join()
+    proc.wait()
+
+    stdout = b"".join(stdout_chunks).decode("utf-8", errors="replace")
+    stderr = b"".join(stderr_chunks).decode("utf-8", errors="replace")
+    if timed_out:
+        stderr = f"{stderr}\n[roundtable timeout after {timeout_seconds} seconds]".strip()
+        return CommandResult(exit_code=124, stdout=stdout, stderr=stderr, argv=argv, cwd=cwd)
+    return CommandResult(
+        exit_code=proc.returncode, stdout=stdout, stderr=stderr, argv=argv, cwd=cwd
+    )
+
+
+def wait_with_heartbeat(
+    proc: "subprocess.Popen[bytes]",
+    *,
+    timeout_seconds: int,
+    heartbeat_seconds: int,
+    label: str,
+    stdout_chunks: List[bytes],
+) -> bool:
+    start = time.monotonic()
+    deadline = start + timeout_seconds
+    next_heartbeat = start + heartbeat_seconds if heartbeat_seconds > 0 else None
+    while True:
+        now = time.monotonic()
+        remaining = deadline - now
+        if remaining <= 0:
+            return True
+        wait_for = remaining
+        if next_heartbeat is not None:
+            wait_for = min(wait_for, max(next_heartbeat - now, 0.0))
+        try:
+            proc.wait(timeout=wait_for if wait_for > 0 else 0.1)
+            return False
+        except subprocess.TimeoutExpired:
+            now = time.monotonic()
+            if next_heartbeat is not None and now >= next_heartbeat:
+                elapsed = int(now - start)
+                bytes_out = sum(len(chunk) for chunk in stdout_chunks)
+                print(
+                    f"[roundtable] {label}: still running, "
+                    f"{elapsed}s/{timeout_seconds}s, {bytes_out} stdout bytes",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                next_heartbeat = now + heartbeat_seconds
+
+
+def kill_process_tree(proc: "subprocess.Popen[bytes]") -> None:
+    if os.name == "posix":
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            return
+        except (ProcessLookupError, PermissionError, OSError):
+            pass
+    try:
+        proc.kill()
+    except OSError:
+        pass
+
+
+def drain_stream(stream: Any, chunks: List[bytes]) -> None:
+    try:
+        for chunk in iter(lambda: stream.read(65536), b""):
+            chunks.append(chunk)
+    finally:
+        stream.close()
+
+
+def feed_stream(stream: Any, text: str) -> None:
+    try:
+        stream.write(text.encode("utf-8"))
+    except (BrokenPipeError, OSError):
+        pass
+    finally:
+        try:
+            stream.close()
+        except OSError:
+            pass
 
 
 def command_resolves(command: str, cwd: Path) -> bool:
@@ -583,6 +701,20 @@ def mock_stdout(agent: Dict[str, Any], turn: Dict[str, Any], prompt: str) -> str
 - Mock Tool B requires source-backed deployment and data-flow verification.
 
 _mock prompt chars: {prompt_size}_"""
+    elif "repair" in role:
+        response = f"""# Mock Citation Repair
+
+## Corrected Rows
+| Item | Support | Source | Confidence |
+|---|---|---|---|
+| Mock Tool A | supported | https://example.invalid/tool-a | medium |
+| Mock Tool B | unknown | unknown | low |
+
+## Citation Corrections
+- "self-hosted support" was attributed to Mock Tool B but the source describes Mock Tool A; re-attributed to Mock Tool A.
+- Dropped one unsourced deployment claim and marked it `unknown`.
+
+_mock prompt chars: {prompt_size}_"""
     elif "auditor" in role:
         response = f"""# Mock Source Audit
 
@@ -593,6 +725,9 @@ _mock prompt chars: {prompt_size}_"""
 ## Completion Status
 - The dossier is usable as a format smoke test.
 - The dossier is not complete research because mock sources are not evidence.
+
+CITATION_INTEGRITY: FAIL
+- "self-hosted support" -> attributed to Mock Tool B -> correct subject is Mock Tool A.
 
 _mock prompt chars: {prompt_size}_"""
     elif "critic" in role:
@@ -619,6 +754,10 @@ _mock prompt chars: {prompt_size}_"""
 
 ## Disagreement
 - No automatic consensus should be inferred from a bounded mock run.
+
+## Citation Integrity & Corrections
+- The source audit reported `CITATION_INTEGRITY: FAIL` and the repair pass re-attributed a contaminated claim from Mock Tool B to Mock Tool A.
+- No flagged citation remains unrepaired in this mock run.
 
 ## Final Proposal
 Ship the skill with JSON presets, a stdlib Python runtime, explicit recovery commands, and mock validation.
@@ -689,6 +828,10 @@ def parse_budget(raw: Any) -> Dict[str, int]:
         ),
         "max_prompt_chars": positive_int(
             record.get("max_prompt_chars"), "budget.max_prompt_chars"
+        ),
+        "heartbeat_seconds": non_negative_int(
+            record.get("heartbeat_seconds", DEFAULT_HEARTBEAT_SECONDS),
+            "budget.heartbeat_seconds",
         ),
     }
 
@@ -1336,12 +1479,27 @@ def next_turn_number(run_dir: Path) -> int:
 
 
 def read_turn_metadata(path: Path) -> Dict[str, str]:
+    """Parse only the leading metadata block of a turn file.
+
+    The metadata is the first contiguous run of `- key: value` bullets that
+    follows the `## Turn` header. Reading the whole file would let bullets like
+    `- name: ...` inside a transcribed prompt or command in the normalized
+    response overwrite the real turn metadata.
+    """
     metadata: Dict[str, str] = {}
+    in_block = False
     for line in read_text(path).splitlines():
-        if not line.startswith("- ") or ": " not in line:
-            continue
-        key, value = line[2:].split(": ", 1)
-        metadata[key] = value
+        is_bullet = line.startswith("- ")
+        if not in_block:
+            if is_bullet:
+                in_block = True
+            else:
+                continue
+        if not is_bullet:
+            break
+        if ": " in line:
+            key, value = line[2:].split(": ", 1)
+            metadata[key] = value
     return metadata
 
 
@@ -1490,6 +1648,12 @@ def positive_int(value: Any, field_name: str) -> int:
     return value
 
 
+def non_negative_int(value: Any, field_name: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise RoundtableError(f"{field_name} must be a non-negative integer")
+    return value
+
+
 def format_set(values: Iterable[str]) -> str:
     return ", ".join(sorted(values))
 
@@ -1509,14 +1673,6 @@ def slug(value: str, keep_underscore: bool = False) -> str:
     pattern = r"[^a-z0-9_]+" if keep_underscore else r"[^a-z0-9]+"
     lowered = value.lower()
     return re.sub(pattern, "-", lowered).strip("-") or "turn"
-
-
-def to_text(value: Any) -> str:
-    if value is None:
-        return ""
-    if isinstance(value, bytes):
-        return value.decode("utf-8", errors="replace")
-    return str(value)
 
 
 def is_relative_to(path: Path, root: Path) -> bool:

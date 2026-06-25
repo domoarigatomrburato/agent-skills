@@ -27,6 +27,10 @@ python3 "$ROUNDTABLE_SCRIPT" run \
   --out "<output-root>"
 ```
 
+While `run` executes, the runtime streams progress to stderr: a `start`/`done`
+line per turn plus a heartbeat every `budget.heartbeat_seconds` (default 30) for
+long command turns. Use this to confirm a turn is alive rather than hung.
+
 4. Inspect:
 
 ```bash
@@ -38,6 +42,12 @@ python3 "$ROUNDTABLE_SCRIPT" inspect --run-dir "<run-dir>"
 6. Retry specific turns or finalize manually when needed.
 7. Read `final.md` and deliver its substance, naming caveats and unresolved
    disagreement.
+
+For source-backed runs (`research-dossier`), also confirm the citation-integrity
+verdict and the repair pass: read the `source-auditor` turn for
+`CITATION_INTEGRITY: PASS`/`FAIL`, check that the `source-repair` turn applied
+corrections on `FAIL`, and confirm `final.md` keeps the contamination visible in
+its Citation Integrity & Corrections section. See `references/research-dossier.md`.
 
 ## Blackboard Contract
 

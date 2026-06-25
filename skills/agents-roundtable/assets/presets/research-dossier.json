@@ -41,14 +41,21 @@
       "agent": "cursor_opus",
       "role": "source-auditor",
       "mode": "discuss",
-      "instruction": "Audit the evidence matrix. Challenge weak, stale, vendor-only, or unsupported claims; identify missing official sources; mark unknowns that were filled with confident prose; and propose corrections. Put only the substantive audit inside the configured roundtable-output markers."
+      "instruction": "Audit the evidence matrix. Verify that every claim is attributed to the correct subject and a real supporting source; flag misattributed or cross-contaminated citations (for example a fact about one tool attributed to another), weak/stale/vendor-only claims, missing official sources, and unknowns that were filled with confident prose. End the audit with a line that is exactly `CITATION_INTEGRITY: PASS` or `CITATION_INTEGRITY: FAIL`, followed by a bulleted list of every contaminated or misattributed claim as `claim -> wrong source/subject -> correct subject`. Put only the substantive audit inside the configured roundtable-output markers."
+    },
+    {
+      "name": "source-repair",
+      "agent": "cursor_opus",
+      "role": "source-repair",
+      "mode": "discuss",
+      "instruction": "Repair the evidence matrix using the source audit. If the audit reported `CITATION_INTEGRITY: FAIL`, re-attribute every flagged claim to its correct subject and source, mark `unknown` any claim whose source cannot be verified, and rebuild the affected rows. Always produce two parts: (1) the corrected evidence matrix, and (2) a `Citation Corrections` log listing each original misattribution and its fix so the contamination stays visible downstream. If the audit reported `CITATION_INTEGRITY: PASS`, state that no repairs were required and restate the verified key sources. Put only the substantive output inside the configured roundtable-output markers."
     },
     {
       "name": "enterprise-critique",
       "agent": "cursor_opus",
       "role": "critic",
       "mode": "discuss",
-      "instruction": "Critique the corrected dossier as an enterprise decision artifact. Focus on risk, cost, operating model, adoption failure modes, data exposure, and decision gates. Preserve unresolved disagreements. Put only the substantive critique inside the configured roundtable-output markers."
+      "instruction": "Critique the repaired dossier as an enterprise decision artifact. Focus on risk, cost, operating model, adoption failure modes, data exposure, and decision gates. Preserve unresolved disagreements. Put only the substantive critique inside the configured roundtable-output markers."
     }
   ],
   "final": {
@@ -56,6 +63,6 @@
     "agent": "codex",
     "role": "synthesizer",
     "mode": "final",
-    "instruction": "Produce the human-facing final Markdown dossier. Include Executive Summary, Evidence Summary table, Recommendation, Shortlist With Confidence, Unknowns, Decision Gates, What To Verify Next, and Patch Or Instructions. Do not introduce factual claims unless they appeared in the evidence matrix or are clearly marked as inference or assumption."
+    "instruction": "Produce the human-facing final Markdown dossier from the repaired evidence matrix. Include Executive Summary, Evidence Summary table, Recommendation, Shortlist With Confidence, Citation Integrity & Corrections, Unknowns, Decision Gates, What To Verify Next, and Patch Or Instructions. In Citation Integrity & Corrections, surface what the source audit flagged and what the repair pass fixed; if any flagged citation was not repaired, lower the affected confidence and say so explicitly. Do not introduce factual claims unless they appeared in the evidence matrix or are clearly marked as inference or assumption."
   }
 }

@@ -35,11 +35,14 @@ normalized turn notes, transcript files, artifacts, and `final.md`.
 1. Interpret the human request and write a concise brief.
 2. Pick a preset from `assets/presets/` or generate a small JSON config.
    Use `research-dossier` for source-backed investigations that need an
-   evidence matrix before recommendation; read
+   evidence matrix before recommendation; it runs a citation-integrity audit
+   and a mandatory source-repair pass before the final, so read
    `references/research-dossier.md` before running it.
 3. Invoke this skill's runtime by path and pass the target project as
    `--workdir`.
 4. Inspect turn markdown plus raw stdout/stderr before trusting the transcript.
+   The runtime streams per-turn `start`/`done` lines and a heartbeat for long
+   turns to stderr while `run` works.
 5. Retry or recover dirty/failed turns when useful.
 6. Finalize the run, read `final.md`, and deliver its substance with caveats.
 

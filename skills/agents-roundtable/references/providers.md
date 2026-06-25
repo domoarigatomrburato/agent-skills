@@ -11,7 +11,8 @@ Presets are JSON so they remain portable and standard-library friendly.
   "stop_condition": "Stop after one round and a final synthesis.",
   "budget": {
     "turn_timeout_seconds": 900,
-    "max_prompt_chars": 120000
+    "max_prompt_chars": 120000,
+    "heartbeat_seconds": 30
   },
   "agents": {
     "codex": {
@@ -42,6 +43,18 @@ Presets are JSON so they remain portable and standard-library friendly.
   }
 }
 ```
+
+## Budget Fields
+
+- `turn_timeout_seconds`: per-turn wall-clock limit before the runtime kills the
+  provider and records exit code 124.
+- `max_prompt_chars`: prompt budget; the transcript is trimmed from the start
+  when a prompt would exceed it.
+- `heartbeat_seconds`: optional, default `30`. While a command provider runs, the
+  runtime prints a heartbeat to stderr every interval with elapsed time and
+  bytes received so long turns are not silent. Set `0` to disable heartbeats.
+  The runtime also prints a `start`/`done` line per turn regardless of this
+  value.
 
 ## Agent Fields
 
