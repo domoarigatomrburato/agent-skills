@@ -1,0 +1,58 @@
+{
+  "name": "research-dossier-budget",
+  "rounds": 4,
+  "stop_condition": "Build a first-pass source-backed dossier with a canonical repair pass and one combined decision critique, then let the chair produce a clearly graded final.",
+  "seats": {
+    "evidence_builder": {
+      "model_slot": "balanced"
+    },
+    "citation_auditor": {
+      "model_slot": "balanced"
+    },
+    "evidence_repairer": {
+      "model_slot": "balanced"
+    },
+    "decision_critic": {
+      "model_slot": "balanced"
+    },
+    "chair_editor": {
+      "model_slot": "chair"
+    }
+  },
+  "turns": [
+    {
+      "name": "evidence-matrix",
+      "seat": "evidence_builder",
+      "role": "evidence_builder",
+      "round": 1,
+      "instruction": "Build a source-backed evidence matrix for the requested investigation. For every shortlisted item include category, support/applicability, deployment or operating model, data exposure or trust boundary, integration surface, cost/licensing caveat when relevant, source URL or explicit unknown, and confidence. Separate confirmed facts, inferences, assumptions, and open questions. Do not recommend yet."
+    },
+    {
+      "name": "citation-audit",
+      "seat": "citation_auditor",
+      "role": "citation_auditor",
+      "round": 2,
+      "instruction": "Audit the evidence matrix. Verify that every claim is attributed to the correct subject and a real supporting source; flag misattributed or cross-contaminated citations, weak or stale claims, missing official sources, and unknowns that were filled with confident prose. End with a line that is exactly `CITATION_INTEGRITY: PASS` or `CITATION_INTEGRITY: FAIL`, followed by each contaminated claim as `claim -> wrong source/subject -> correct subject`."
+    },
+    {
+      "name": "evidence-repair",
+      "seat": "evidence_repairer",
+      "role": "evidence_repairer",
+      "round": 3,
+      "instruction": "Repair the evidence matrix using the citation audit. Emit a full `Canonical Evidence Matrix`, not a patch annex. On `CITATION_INTEGRITY: FAIL`, re-attribute every flagged claim to its correct subject and source, mark unverifiable claims `unknown`, rebuild every affected row, and write a `Citation Corrections` log. On `PASS`, restate the verified key sources and still emit the canonical matrix."
+    },
+    {
+      "name": "decision-critique",
+      "seat": "decision_critic",
+      "role": "decision_critic",
+      "round": 4,
+      "instruction": "Critique the repaired dossier as a first-pass decision artifact. Combine enterprise adoption risk, cost and operating model concerns, clarity, overreach, unresolved unknowns, and decision gates. Say what must be verified before purchase, rollout, or publication."
+    }
+  ],
+  "final": {
+    "name": "chair-dossier",
+    "seat": "chair_editor",
+    "role": "final_editor",
+    "instruction": "The chair normally writes the final Markdown dossier from the canonical repaired evidence matrix and the decision critique. Include Executive Summary, Evidence Summary, Recommendation, Shortlist With Confidence, Citation Integrity & Corrections, Unknowns, Decision Gates, What To Verify Next, and Patch Or Instructions. Keep contamination visible; if citation integrity lacks a clean pass, lower confidence and say so explicitly."
+  }
+}

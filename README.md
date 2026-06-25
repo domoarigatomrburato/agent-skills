@@ -7,9 +7,8 @@ CLI views can group the installed skills under `DomoArigatoMrBurato Skills`.
 
 ## Skills
 
-- `cursor-council` - Run a Cursor-only, read-only council of Task subagents
-  with first-class model bindings and a deterministic run directory that
-  produces a traceable `final.md`.
+- `agent-council` - Chair a harness-agnostic, read-only council of subagents
+  with preflight, profiles, durable transcript, and a traceable `final.md`.
 - `simplify` - Simplify existing code while preserving exact behavior, using a
   fresh independent agent pass when supported, with a bias toward removing
   leftover shims, duplicate sources of truth, and unnecessary wrappers.
@@ -19,32 +18,44 @@ CLI views can group the installed skills under `DomoArigatoMrBurato Skills`.
 
 ## Install
 
-Install all skills globally:
+Install all skills for Universal + Claude Code:
 
 ```bash
-npx skills add domoarigatomrburato/agent-skills -g --all
+npx skills add domoarigatomrburato/agent-skills -g --skill '*' --agent universal claude-code -y
 ```
 
-Install only `cursor-council`:
+Install only `agent-council` for Universal + Claude Code:
 
 ```bash
-npx skills add domoarigatomrburato/agent-skills -g --skill cursor-council --agent cursor -y
+npx skills add domoarigatomrburato/agent-skills -g --skill agent-council --agent universal claude-code -y
 ```
 
 Install only `simplify`:
 
 ```bash
-npx skills add domoarigatomrburato/agent-skills -g --skill simplify -y
+npx skills add domoarigatomrburato/agent-skills -g --skill simplify --agent universal claude-code -y
 ```
 
 Install only `santommaso`:
 
 ```bash
-npx skills add domoarigatomrburato/agent-skills -g --skill santommaso -y
+npx skills add domoarigatomrburato/agent-skills -g --skill santommaso --agent universal claude-code -y
 ```
 
 Install from a local checkout while developing:
 
 ```bash
-npx skills add ./agent-skills -g --skill santommaso --copy -y
+npx skills add . -g --skill agent-council --agent universal claude-code --copy -y
+```
+
+List skills without installing:
+
+```bash
+npx skills add . --list
+```
+
+Remove a globally installed skill:
+
+```bash
+npx skills remove -g --skill agent-council -y
 ```

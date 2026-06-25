@@ -3,33 +3,36 @@
   "rounds": 2,
   "stop_condition": "Exercise the blackboard plumbing with two recorded turns and one recorded final.",
   "seats": {
-    "gpt": {
-      "model": "gpt-5.4-xhigh"
+    "alpha_writer": {
+      "model_slot": "smoke"
     },
-    "sonnet": {
-      "model": "claude-4.6-sonnet-medium-thinking"
+    "beta_critic": {
+      "model_slot": "smoke"
+    },
+    "chair_editor": {
+      "model_slot": "chair"
     }
   },
   "turns": [
     {
       "name": "alpha",
-      "seat": "gpt",
-      "role": "writer",
+      "seat": "alpha_writer",
+      "role": "smoke_writer",
       "round": 1,
       "instruction": "Return exactly `alpha turn`."
     },
     {
       "name": "beta",
-      "seat": "sonnet",
-      "role": "critic",
+      "seat": "beta_critic",
+      "role": "smoke_critic",
       "round": 2,
       "instruction": "Return exactly `beta turn`."
     }
   ],
   "final": {
     "name": "omega",
-    "seat": "gpt",
-    "role": "synthesizer",
+    "seat": "chair_editor",
+    "role": "smoke_editor",
     "instruction": "Return exactly `final turn`."
   }
 }

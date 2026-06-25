@@ -1,0 +1,48 @@
+{
+  "name": "council",
+  "rounds": 2,
+  "stop_condition": "Build one proposal, gather independent risk and pragmatic critiques, then let the chair produce a synthesis that preserves material disagreement.",
+  "seats": {
+    "proposal_builder": {
+      "model_slot": "balanced"
+    },
+    "risk_critic": {
+      "model_slot": "balanced"
+    },
+    "pragmatic_critic": {
+      "model_slot": "balanced"
+    },
+    "chair_editor": {
+      "model_slot": "chair"
+    }
+  },
+  "turns": [
+    {
+      "name": "proposal",
+      "seat": "proposal_builder",
+      "role": "proposal_builder",
+      "round": 1,
+      "instruction": "Draft the first answer to the brief. State assumptions, expose uncertainty, and leave room for disagreement instead of over-claiming consensus."
+    },
+    {
+      "name": "risk-critique",
+      "seat": "risk_critic",
+      "role": "risk_critic",
+      "round": 2,
+      "instruction": "Critique the proposal for correctness, hidden assumptions, missing caveats, edge cases, and places where it sounds more certain than the evidence allows."
+    },
+    {
+      "name": "pragmatic-critique",
+      "seat": "pragmatic_critic",
+      "role": "pragmatic_critic",
+      "round": 2,
+      "instruction": "Critique the proposal for practicality, prioritization, sequencing, and user usefulness. Identify where the answer is too abstract, too long, or misses the user's likely decision points."
+    }
+  ],
+  "final": {
+    "name": "chair-synthesis",
+    "seat": "chair_editor",
+    "role": "final_editor",
+    "instruction": "The chair normally writes the final Markdown answer from the transcript. Preserve important disagreement, surface uncertainty, and make the recommendation or action items clear."
+  }
+}
