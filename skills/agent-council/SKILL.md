@@ -67,11 +67,12 @@ editing, and delivery to the user.
    ```
 
 4. For each planned turn, build a fresh prompt from `brief.md`, relevant
-   repository or user context, transcript/turn file paths, and the turn
-   instruction. `start` writes editable stubs under `prompts/`; complete those
-   stubs before execution. Give the subagent only that prompt, launch
-   independent same-round turns in parallel, save the prompt and final response
-   verbatim, then record. Use
+   repository or user context, `transcript.md` for run metadata/order, prior
+   turn files as canonical prior outputs, and the turn instruction. `start`
+   writes editable stubs under `prompts/`; complete those stubs before
+   execution. Give the subagent only that prompt, launch independent same-round
+   turns in parallel, save the prompt and final response verbatim, then record.
+   Use preset `output_contract` entries as checkable completion criteria. Use
    [references/prompt-template.md](references/prompt-template.md) for non-smoke
    prompts. For Cursor, Copilot, or shell-backed seats, also read
    [references/external-seats.md](references/external-seats.md):

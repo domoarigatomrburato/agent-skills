@@ -19,20 +19,29 @@
       "seat": "alpha_writer",
       "role": "smoke_writer",
       "round": 1,
-      "instruction": "Return exactly `alpha turn`."
+      "instruction": "Return exactly `alpha turn`.",
+      "output_contract": [
+        "Return exactly `alpha turn` and nothing else."
+      ]
     },
     {
       "name": "beta",
       "seat": "beta_critic",
       "role": "smoke_critic",
       "round": 2,
-      "instruction": "Return exactly `beta turn`."
+      "instruction": "Return exactly `beta turn`.",
+      "output_contract": [
+        "Return exactly `beta turn` and nothing else."
+      ]
     }
   ],
   "final": {
     "name": "omega",
     "seat": "chair_editor",
     "role": "smoke_editor",
-    "instruction": "Return exactly `final turn`."
+    "instruction": "Return exactly `final turn`.",
+    "output_contract": [
+      "Return exactly `final turn` and nothing else."
+    ]
   }
 }

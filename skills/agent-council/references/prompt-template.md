@@ -20,6 +20,10 @@ You are the `[seat]` seat for an `agent-council` run.
 - Prior turn files:
   - `[run-dir]/turns/[prior-turn].md`
 
+When `transcript.md` repeats prior turn content, use it for run metadata, turn
+order, and audit trail. Use the listed prior turn files as the canonical prior
+outputs to avoid rereading duplicated bodies.
+
 ## Constraints
 
 - Read-only: do not modify project files.
@@ -29,7 +33,7 @@ You are the `[seat]` seat for an `agent-council` run.
 
 ## Output Contract
 
-[turn-specific output requirements]
+[turn-specific output requirements from `output_contract`]
 
 - Emit the complete deliverable in this response/stdout.
 - Do not save only a separate artifact, session note, or progress summary.

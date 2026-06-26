@@ -724,6 +724,7 @@ def command_inspect(args: argparse.Namespace) -> int:
         f"Final: [{final_status}] {final_turn['name']}: seat={final_turn['seat']} "
         f"role={final_turn['role']} model={final_model}"
     )
+    print_prompt_diagnostics(run_dir, config)
     return 0
 
 
@@ -870,6 +871,9 @@ def validate_turn(
     prompt_file = optional_string(turn.get("prompt_file"), f"{label}.prompt_file")
     if prompt_file:
         normalized["prompt_file"] = prompt_file
+    output_contract = optional_string_list(turn.get("output_contract"), f"{label}.output_contract")
+    if output_contract:
+        normalized["output_contract"] = output_contract
     if allow_round:
         normalized["round"] = required_int(turn.get("round"), f"{label}.round", minimum=1, maximum=rounds)
     return normalized
@@ -909,6 +913,9 @@ def load_plan(*, plan_file: str, profile: str) -> str:
 
 
 def draft_plan_document(*, config: Dict[str, Any], profile: str, workdir: Path) -> str:
+    decision_grade = suggested_decision_grade(config, profile)
+    model_diversity = suggested_model_diversity(config)
+    limitations = suggested_limitations(config, profile)
     lines = [
         "# Council Plan",
         "",
@@ -917,8 +924,8 @@ def draft_plan_document(*, config: Dict[str, Any], profile: str, workdir: Path) 
         f"- profile: {profile}",
         f"- target_workdir: `{workdir}`",
         f"- stop_condition: {config['stop_condition']}",
-        "- decision_grade: TODO",
-        "- model_diversity: TODO",
+        f"- decision_grade: {decision_grade}",
+        f"- model_diversity: {model_diversity}",
         "- confirmation: TODO",
         "",
         "## Seats",
@@ -961,13 +968,20 @@ def draft_plan_document(*, config: Dict[str, Any], profile: str, workdir: Path) 
             "## Final",
             "",
             f"- `{final_turn['name']}`: seat `{final_turn['seat']}`, role `{final_turn['role']}`",
+        ]
+    )
+    final_contract = output_contract_lines(final_turn)
+    if final_contract:
+        lines.append("- output_contract:")
+        lines.extend(f"  {line}" for line in final_contract)
+    lines.extend(
+        [
             "",
             "## Limitations",
             "",
-            "- TODO: record model discovery/probe limitations.",
-            "- TODO: record external CLI cwd/access envelope if using Cursor, Copilot, or shell seats.",
         ]
     )
+    lines.extend(f"- {limitation}" for limitation in limitations)
     return "\n".join(lines) + "\n"
 
 
@@ -999,9 +1013,18 @@ def scaffold_prompt_document(
         lines.append("- Prior turn files:")
         for prior in prior_turns:
             lines.append(f"  - `{turn_output_path(run_dir, config, prior)}`")
+        lines.extend(
+            [
+                "",
+                "When `transcript.md` repeats prior turn content, use it for run metadata,",
+                "turn order, and audit trail. Use the listed prior turn files as the",
+                "canonical prior outputs to avoid rereading duplicated bodies.",
+            ]
+        )
     if extra_context:
         lines.append("- Extra context files:")
         lines.extend(f"  - `{path}`" for path in extra_context)
+    output_contract = output_contract_lines(turn)
     lines.extend(
         [
             "",
@@ -1014,12 +1037,22 @@ def scaffold_prompt_document(
             "",
             "## Output Contract",
             "",
+        ]
+    )
+    if output_contract:
+        lines.extend(output_contract)
+    lines.extend(
+        [
             "- Emit the complete deliverable in this response/stdout.",
             "- Do not save only a separate artifact or session note.",
             "- If evidence is missing, say exactly what is missing and keep the claim downgraded.",
         ]
     )
     return "\n".join(lines) + "\n"
+
+
+def output_contract_lines(turn: Dict[str, Any]) -> List[str]:
+    return [f"- {line}" for line in turn.get("output_contract", [])]
 
 
 def write_prompt_stubs(
@@ -1155,6 +1188,50 @@ def profile_warnings(preset_name: str, profile: str) -> List[str]:
             "from this run is not decision-grade"
         )
     return warnings
+
+
+def suggested_decision_grade(config: Dict[str, Any], profile: str) -> str:
+    if profile == "smoke":
+        return "not decision-grade"
+    if profile == "budget":
+        return "first-pass, not procurement-ready"
+    if profile == "premium":
+        return "high-confidence candidate after chair verifies evidence"
+    if is_research_dossier(config):
+        return "decision-support draft; verify before purchase or rollout"
+    return "decision-support draft; verify high-impact claims"
+
+
+def suggested_model_diversity(config: Dict[str, Any]) -> str:
+    external_providers = [
+        seat.get("provider", "")
+        for seat in config["seats"].values()
+        if seat.get("provider", "") in EXTERNAL_PROVIDERS
+    ]
+    if external_providers:
+        return "TODO: record real/partial/absent after provider and model resolution"
+    return "absent, chair/subagent harness unless the chair resolves separate model families"
+
+
+def suggested_limitations(config: Dict[str, Any], profile: str) -> List[str]:
+    limitations: List[str] = []
+    if profile == "smoke":
+        limitations.append("Smoke profile: plumbing check only; output is not decision-grade.")
+    elif profile == "budget":
+        limitations.append("Budget profile: first-pass output; verify high-impact claims before acting.")
+    else:
+        limitations.append(f"{profile} profile: record resolved models and remaining evidence limits before start.")
+
+    if any(seat.get("provider", "") in EXTERNAL_PROVIDERS for seat in config["seats"].values()):
+        limitations.append(
+            "External seats: confirm executable access, cwd, trust, model discovery/probe artifacts, and degraded-mode policy."
+        )
+    else:
+        limitations.append("No external provider seats in this preset unless the chair adds them.")
+
+    if is_research_dossier(config):
+        limitations.append("Citation integrity must stay visible; failed audits lower the final grade unless repaired.")
+    return limitations
 
 
 def run_profile(config: Dict[str, Any]) -> str:
@@ -1413,6 +1490,28 @@ def recorded_turn_names(run_dir: Path, config: Dict[str, Any]) -> List[str]:
         if turn_output_path(run_dir, config, turn).exists():
             names.append(turn["name"])
     return names
+
+
+def print_prompt_diagnostics(run_dir: Path, config: Dict[str, Any]) -> None:
+    prompts_dir = run_dir / "prompts"
+    transcript_text = read_text_if_exists(run_dir / "transcript.md")
+    transcript_has_turn_bodies = "### Response" in transcript_text and bool(recorded_turn_names(run_dir, config))
+
+    print("Prompt diagnostics:")
+    for turn in config["turns"]:
+        prompt_path = prompts_dir / f"{slug(turn['name'])}.prompt.md"
+        prompt_text = read_text_if_exists(prompt_path)
+        prior_turns = [candidate for candidate in config["turns"] if candidate["round"] < turn["round"]]
+        read_strategy = "n/a"
+        if prior_turns:
+            read_strategy = "present" if "canonical prior outputs" in prompt_text else "missing"
+        print(
+            f"- {turn['name']}: prompt={exists_label(prompt_path)} "
+            f"bytes={len(prompt_text.encode('utf-8'))} lines={len(prompt_text.splitlines())} "
+            f"prior_refs={len(prior_turns)} "
+            f"transcript_has_turn_bodies={yes_no(transcript_has_turn_bodies)} "
+            f"read_strategy={read_strategy}"
+        )
 
 
 def turn_output_path(run_dir: Path, config: Dict[str, Any], turn: Dict[str, Any]) -> Path:
@@ -1910,6 +2009,10 @@ def exists_label(path: Path) -> str:
     return "yes" if path.exists() else "no"
 
 
+def yes_no(value: bool) -> str:
+    return "yes" if value else "no"
+
+
 def require_record(value: Any, field_name: str) -> Dict[str, Any]:
     if not isinstance(value, dict):
         raise CouncilError(f"{field_name} must be an object")
@@ -1928,6 +2031,22 @@ def optional_string(value: Any, field_name: str) -> str:
     if not isinstance(value, str):
         raise CouncilError(f"{field_name} must be a string")
     return value.strip()
+
+
+def optional_string_list(value: Any, field_name: str) -> List[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        text = value.strip()
+        return [text] if text else []
+    if not isinstance(value, list):
+        raise CouncilError(f"{field_name} must be a string or array of strings")
+    normalized: List[str] = []
+    for index, item in enumerate(value):
+        if not isinstance(item, str) or not item.strip():
+            raise CouncilError(f"{field_name}[{index}] must be a non-empty string")
+        normalized.append(item.strip())
+    return normalized
 
 
 def optional_bool(value: Any, field_name: str) -> Optional[bool]:

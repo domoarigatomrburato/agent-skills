@@ -22,14 +22,22 @@ records the actual model used for every turn.
       "seat": "proposal_builder",
       "role": "proposal_builder",
       "round": 1,
-      "instruction": "Draft the first answer."
+      "instruction": "Draft the first answer.",
+      "output_contract": [
+        "State assumptions before recommendations.",
+        "Give critics a concrete proposal to challenge."
+      ]
     }
   ],
   "final": {
     "name": "chair-synthesis",
     "seat": "chair_editor",
     "role": "final_editor",
-    "instruction": "The chair normally writes the final Markdown answer."
+    "instruction": "The chair normally writes the final Markdown answer.",
+    "output_contract": [
+      "Lead with the recommendation.",
+      "Preserve material disagreement."
+    ]
   }
 }
 ```
@@ -46,9 +54,12 @@ records the actual model used for every turn.
   `prompt_transport`, or `cursor_trust`; see
   [external-seats.md](external-seats.md).
 - `turns`: planned discussion turns. Each `name` must be unique.
-  Turns may set `prompt_file` for reusable prompt files.
+  Turns may set `prompt_file` for reusable prompt files and
+  `output_contract` as a string or array of strings. `scaffold-run` renders the
+  contract into the generated prompt before the generic output requirements.
 - `final`: final editing contract. Its `name` must not duplicate a discussion
-  turn.
+  turn. It may also set `output_contract`; `scaffold-run` surfaces that
+  contract in the draft plan for the chair.
 
 `record --turn <name>` looks up the planned turn, writes its note into `turns/`,
 archives any previous current attempt, and rebuilds `transcript.md`.
@@ -85,11 +96,14 @@ For each turn, construct or edit a prompt from:
 
 1. `brief.md`
 2. relevant repository or user context
-3. `transcript.md` and current turn file paths
+3. `transcript.md` for run metadata and turn ordering, plus prior turn files as
+   canonical prior outputs
 4. the turn's `instruction`
 
 For long runs, point subagents at files on disk instead of replacing the
-transcript with a lossy summary. Use
+transcript with a lossy summary. When `transcript.md` repeats full turn bodies,
+avoid asking later seats to reread both copies; use the prior turn files for the
+body of prior work. Use
 [prompt-template.md](prompt-template.md) for non-smoke turns. Save each prompt
 and response verbatim before calling `record`.
 

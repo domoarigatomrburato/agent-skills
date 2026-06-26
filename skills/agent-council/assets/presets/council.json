@@ -22,27 +22,47 @@
       "seat": "proposal_builder",
       "role": "proposal_builder",
       "round": 1,
-      "instruction": "Draft the first answer to the brief. State assumptions, expose uncertainty, and leave room for disagreement instead of over-claiming consensus."
+      "instruction": "Draft the first answer to the brief. State assumptions, expose uncertainty, and leave room for disagreement instead of over-claiming consensus.",
+      "output_contract": [
+        "State assumptions and uncertainty before the recommendation.",
+        "Give a concrete proposal with enough structure for critics to challenge.",
+        "Call out at least one place where disagreement would be useful."
+      ]
     },
     {
       "name": "risk-critique",
       "seat": "risk_critic",
       "role": "risk_critic",
       "round": 2,
-      "instruction": "Critique the proposal for correctness, hidden assumptions, missing caveats, edge cases, and places where it sounds more certain than the evidence allows."
+      "instruction": "Critique the proposal for correctness, hidden assumptions, missing caveats, edge cases, and places where it sounds more certain than the evidence allows.",
+      "output_contract": [
+        "List correctness risks and hidden assumptions before minor caveats.",
+        "Downgrade claims that are stronger than the available evidence.",
+        "Name any evidence that is missing before the chair should trust the proposal."
+      ]
     },
     {
       "name": "pragmatic-critique",
       "seat": "pragmatic_critic",
       "role": "pragmatic_critic",
       "round": 2,
-      "instruction": "Critique the proposal for practicality, prioritization, sequencing, and user usefulness. Identify where the answer is too abstract, too long, or misses the user's likely decision points."
+      "instruction": "Critique the proposal for practicality, prioritization, sequencing, and user usefulness. Identify where the answer is too abstract, too long, or misses the user's likely decision points.",
+      "output_contract": [
+        "Identify the highest-leverage practical change first.",
+        "Call out sequencing problems or unnecessary process weight.",
+        "Say what decision the user can make from the proposal."
+      ]
     }
   ],
   "final": {
     "name": "chair-synthesis",
     "seat": "chair_editor",
     "role": "final_editor",
-    "instruction": "The chair normally writes the final Markdown answer from the transcript. Preserve important disagreement, surface uncertainty, and make the recommendation or action items clear."
+    "instruction": "The chair normally writes the final Markdown answer from the transcript. Preserve important disagreement, surface uncertainty, and make the recommendation or action items clear.",
+    "output_contract": [
+      "Lead with the recommendation or action items.",
+      "Preserve material disagreement and uncertainty.",
+      "State the decision grade plainly."
+    ]
   }
 }

@@ -22,27 +22,47 @@
       "seat": "target_mapper",
       "role": "target_mapper",
       "round": 1,
-      "instruction": "Map the target of the review. Summarize what changed or what subsystem is under review, identify the likely failure surface, and note the tests or evidence that should exist before anyone trusts the change."
+      "instruction": "Map the target of the review. Summarize what changed or what subsystem is under review, identify the likely failure surface, and note the tests or evidence that should exist before anyone trusts the change.",
+      "output_contract": [
+        "Summarize the target and likely failure surface.",
+        "List evidence or tests that should exist before trusting the change.",
+        "Do not issue final review findings yet."
+      ]
     },
     {
       "name": "correctness-critique",
       "seat": "correctness_critic",
       "role": "correctness_critic",
       "round": 2,
-      "instruction": "Review for correctness, regressions, missing edge cases, unsafe assumptions, and places where the implementation and tests appear to disagree. Prioritize user-visible or merge-blocking problems."
+      "instruction": "Review for correctness, regressions, missing edge cases, unsafe assumptions, and places where the implementation and tests appear to disagree. Prioritize user-visible or merge-blocking problems.",
+      "output_contract": [
+        "Lead with user-visible or merge-blocking correctness findings.",
+        "Ground each finding in concrete behavior or missing evidence.",
+        "Call out test gaps only when they materially affect confidence."
+      ]
     },
     {
       "name": "maintainability-critique",
       "seat": "maintainability_critic",
       "role": "maintainability_critic",
       "round": 2,
-      "instruction": "Review for maintainability, clarity, naming, ownership boundaries, and whether the code or plan is harder to change safely than it needs to be. Call out missing tests when they materially raise risk."
+      "instruction": "Review for maintainability, clarity, naming, ownership boundaries, and whether the code or plan is harder to change safely than it needs to be. Call out missing tests when they materially raise risk.",
+      "output_contract": [
+        "Prioritize maintainability issues that change future safety or cost.",
+        "Separate clarity suggestions from behavioral risk.",
+        "Name ownership or boundary confusion when it affects changeability."
+      ]
     }
   ],
   "final": {
     "name": "chair-review",
     "seat": "chair_editor",
     "role": "final_editor",
-    "instruction": "The chair normally writes the final review. Lead with findings ordered by severity, ground them in concrete behavior, mention residual risk and test gaps, and keep the summary brief if there are no issues."
+    "instruction": "The chair normally writes the final review. Lead with findings ordered by severity, ground them in concrete behavior, mention residual risk and test gaps, and keep the summary brief if there are no issues.",
+    "output_contract": [
+      "Lead with findings ordered by severity.",
+      "Ground findings in concrete behavior.",
+      "Mention residual risk and test gaps."
+    ]
   }
 }

@@ -3,6 +3,10 @@
 Use this template for non-smoke preflight. Replace every bracketed value before
 asking the user to confirm.
 
+`scaffold-run` may prefill profile-aware suggestions for decision grade, model
+diversity, and limitations. Treat them as editable draft text; the chair still
+owns model resolution, confirmation, and final trust labels.
+
 ```markdown
 # Council Plan
 
