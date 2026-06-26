@@ -266,7 +266,12 @@ def command_start(args: argparse.Namespace) -> int:
     write_text(run_dir / "brief.md", brief)
     write_text(run_dir / "council-plan.md", plan)
     write_text(run_dir / "transcript.md", transcript_document(config, run_dir))
-    write_prompt_stubs(run_dir=run_dir, config=config, extra_context=[])
+    write_prompt_stubs(
+        prompts_dir=run_dir / "prompts",
+        config=config,
+        prompt_run_dir=str(run_dir),
+        extra_context=[],
+    )
 
     print(f"Run started: {run_dir}")
     print(f"Preset: {config_path}")
@@ -308,18 +313,13 @@ def command_scaffold_run(args: argparse.Namespace) -> int:
     write_text(scaffold_dir / "brief.md", brief)
     write_text(scaffold_dir / "council-plan.md", plan)
 
-    prompts_dir = scaffold_dir / "prompts"
     extra_context = [str(resolve_path(value)) for value in args.extra_context_file]
-    for turn in config["turns"]:
-        write_text(
-            prompts_dir / f"{slug(turn['name'])}.prompt.md",
-            scaffold_prompt_document(
-                config=config,
-                turn=turn,
-                run_dir_placeholder="<run-dir-after-start>",
-                extra_context=extra_context,
-            ),
-        )
+    prompts_dir = write_prompt_stubs(
+        prompts_dir=scaffold_dir / "prompts",
+        config=config,
+        prompt_run_dir="<run-dir-after-start>",
+        extra_context=extra_context,
+    )
 
     write_text(
         scaffold_dir / "start-command.txt",
@@ -1022,15 +1022,20 @@ def scaffold_prompt_document(
     return "\n".join(lines) + "\n"
 
 
-def write_prompt_stubs(*, run_dir: Path, config: Dict[str, Any], extra_context: List[str]) -> Path:
-    prompts_dir = run_dir / "prompts"
+def write_prompt_stubs(
+    *,
+    prompts_dir: Path,
+    config: Dict[str, Any],
+    prompt_run_dir: str,
+    extra_context: List[str],
+) -> Path:
     for turn in config["turns"]:
         write_text(
             prompts_dir / f"{slug(turn['name'])}.prompt.md",
             scaffold_prompt_document(
                 config=config,
                 turn=turn,
-                run_dir_placeholder=str(run_dir),
+                run_dir_placeholder=prompt_run_dir,
                 extra_context=extra_context,
             ),
         )
@@ -1081,25 +1086,22 @@ def resolve_preset(value: str) -> Path:
 
 def make_run_dir(output_root: Path) -> Path:
     runs_root = output_root / "runs"
-    runs_root.mkdir(parents=True, exist_ok=True)
-    timestamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
-    candidate = runs_root / timestamp
-    suffix = 1
-    while candidate.exists():
-        candidate = runs_root / f"{timestamp}-{suffix}"
-        suffix += 1
-    candidate.mkdir(parents=True)
-    return candidate
+    return make_unique_timestamped_dir(runs_root, "")
 
 
 def make_discovery_dir(output_root: Path, provider: str) -> Path:
     discovery_root = output_root / "model-discovery"
-    discovery_root.mkdir(parents=True, exist_ok=True)
+    return make_unique_timestamped_dir(discovery_root, provider)
+
+
+def make_unique_timestamped_dir(parent: Path, suffix_label: str) -> Path:
+    parent.mkdir(parents=True, exist_ok=True)
     timestamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
-    candidate = discovery_root / f"{timestamp}-{provider}"
+    base_name = f"{timestamp}-{suffix_label}" if suffix_label else timestamp
+    candidate = parent / base_name
     suffix = 1
     while candidate.exists():
-        candidate = discovery_root / f"{timestamp}-{provider}-{suffix}"
+        candidate = parent / f"{base_name}-{suffix}"
         suffix += 1
     candidate.mkdir(parents=True)
     return candidate
