@@ -41,7 +41,11 @@ records the actual model used for every turn.
   and may be launched in parallel from the same transcript snapshot.
 - `stop_condition`: concise description of when the council is done.
 - `seats`: epistemic seat names to capability-oriented `model_slot` values.
+  External seats may also set `provider`, `model`, `executable`, `command`,
+  `mode`, `timeout_seconds`, or `prompt_file`; see
+  [external-seats.md](external-seats.md).
 - `turns`: planned discussion turns. Each `name` must be unique.
+  Turns may set `prompt_file` for reusable prompt files.
 - `final`: final editing contract. Its `name` must not duplicate a discussion
   turn.
 
@@ -87,11 +91,17 @@ transcript with a lossy summary. Use
 [prompt-template.md](prompt-template.md) for non-smoke turns. Save each prompt
 and response verbatim before calling `record`.
 
+For Cursor, Copilot, or generic CLI seats, use
+[external-seats.md](external-seats.md). `run-shell-seat` records the turn and
+writes provider metadata under `external/<turn>/`.
+
 ## Built-in Presets
 
 - `selftest`: smoke-only plumbing workflow.
 - `council`: proposal -> parallel risk/pragmatic critiques -> chair synthesis.
 - `review`: target map -> correctness/maintainability critiques -> chair review.
+- `legacy-architecture-map`: source inventory -> current-state and API maps
+  -> evidence audit -> repaired architecture map -> chair synthesis.
 - `research-dossier-budget`: first-pass dossier with one combined decision
   critique.
 - `research-dossier`: fuller dossier with re-audit plus separate adoption-risk

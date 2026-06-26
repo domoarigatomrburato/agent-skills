@@ -6,14 +6,21 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import hashlib
 import json
+import shlex
+import shutil
+import subprocess
 import re
 import sys
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
 DEFAULT_OUTPUT_ROOT = "/tmp/agent-council"
 PROFILES = ("smoke", "budget", "standard", "premium")
+EXTERNAL_PROVIDERS = ("shell", "cursor", "copilot")
+EXTERNAL_MODES = ("read-only", "unrestricted")
 
 
 class CouncilError(Exception):
@@ -71,6 +78,62 @@ def build_parser() -> argparse.ArgumentParser:
     )
     record.set_defaults(handler=command_record)
 
+    run_shell = subparsers.add_parser(
+        "run-shell-seat",
+        help="execute a planned turn through a shell-backed external seat",
+    )
+    run_shell.add_argument("--run-dir", required=True, help="run directory from start")
+    run_shell.add_argument("--turn", required=True, help="planned turn name")
+    run_shell.add_argument(
+        "--prompt-file",
+        default="",
+        help="prompt to send to the external seat; falls back to turn.prompt_file when configured",
+    )
+    run_shell.add_argument(
+        "--provider",
+        choices=EXTERNAL_PROVIDERS,
+        default="",
+        help="external provider adapter; defaults to the seat provider or shell",
+    )
+    run_shell.add_argument(
+        "--command",
+        default="",
+        help=(
+            "shell provider command. If it contains {prompt}, the prompt is "
+            "passed as that argument; if it contains {prompt_file}, the "
+            "materialized prompt path is passed; otherwise the prompt is sent "
+            "on stdin."
+        ),
+    )
+    run_shell.add_argument(
+        "--executable",
+        default="",
+        help="override executable for cursor/copilot providers",
+    )
+    run_shell.add_argument(
+        "--cwd",
+        default="",
+        help="working directory for the external CLI; defaults to resolved run workdir",
+    )
+    run_shell.add_argument(
+        "--model",
+        default="",
+        help="provider model slug to request and record when supported",
+    )
+    run_shell.add_argument(
+        "--mode",
+        choices=EXTERNAL_MODES,
+        default="",
+        help="execution posture; defaults to seat mode or read-only",
+    )
+    run_shell.add_argument(
+        "--timeout-seconds",
+        type=int,
+        default=0,
+        help="external CLI timeout; defaults to seat timeout or 1800",
+    )
+    run_shell.set_defaults(handler=command_run_shell_seat)
+
     finalize = subparsers.add_parser("finalize", help="write final.md from a synthesis file")
     finalize.add_argument("--run-dir", required=True, help="run directory from start")
     finalize.add_argument(
@@ -125,6 +188,7 @@ def command_start(args: argparse.Namespace) -> int:
     run_dir = make_run_dir(output_root)
     ensure_run_dirs(run_dir)
     write_json(run_dir / "config.json", config)
+    write_json(run_dir / "resolved-config.json", resolved_config(config, workdir))
     write_text(run_dir / "brief.md", brief)
     write_text(run_dir / "council-plan.md", plan)
     write_text(run_dir / "transcript.md", transcript_document(config, run_dir))
@@ -148,6 +212,139 @@ def command_start(args: argparse.Namespace) -> int:
         f"- final: name={final_turn['name']} seat={final_turn['seat']} "
         f"role={final_turn['role']} model_slot={seat_model_slot(config, final_turn['seat'])}"
     )
+    return 0
+
+
+def command_run_shell_seat(args: argparse.Namespace) -> int:
+    run_dir = resolve_path(args.run_dir)
+    assert_dir(run_dir, "run-dir")
+    config = load_run_config(run_dir)
+    turn = planned_turn_by_name(config, args.turn)
+    seat = config["seats"][turn["seat"]]
+    profile = run_profile(config)
+
+    prompt_source = prompt_file_for_external_seat(args.prompt_file, seat, turn, run_dir)
+    if profile != "smoke" and not prompt_source:
+        raise CouncilError("non-smoke external seats require --prompt-file or turn.prompt_file")
+    if not prompt_source:
+        raise CouncilError("pass --prompt-file for external seat execution")
+    prompt_text = read_text(prompt_source)
+    if not prompt_text.strip():
+        raise CouncilError("external seat prompt file is empty")
+
+    provider = args.provider or seat.get("provider", "shell")
+    if provider not in EXTERNAL_PROVIDERS:
+        raise CouncilError(f"external provider must be one of: {', '.join(EXTERNAL_PROVIDERS)}")
+    mode = args.mode or seat.get("mode", "read-only")
+    if mode not in EXTERNAL_MODES:
+        raise CouncilError(f"external mode must be one of: {', '.join(EXTERNAL_MODES)}")
+    timeout_seconds = args.timeout_seconds or int(seat.get("timeout_seconds", 1800))
+    if timeout_seconds <= 0:
+        raise CouncilError("--timeout-seconds must be > 0")
+
+    cwd = resolve_external_cwd(args.cwd, run_dir)
+    command = args.command or seat.get("command", "")
+    executable_override = args.executable or seat.get("executable", "")
+    requested_model = args.model or seat.get("model", "")
+
+    external_dir = external_turn_dir(run_dir, turn)
+    external_dir.mkdir(parents=True, exist_ok=True)
+    external_prompt = external_dir / "prompt.md"
+    stdout_path = external_dir / "stdout.txt"
+    stderr_path = external_dir / "stderr.txt"
+    response_path = external_dir / "response.md"
+    metadata_path = external_dir / "metadata.json"
+    write_text(external_prompt, ensure_trailing_newline(prompt_text))
+    invocation = build_external_invocation(
+        provider=provider,
+        prompt=prompt_text,
+        prompt_path=external_prompt,
+        command=command,
+        executable_override=executable_override,
+        requested_model=requested_model,
+        mode=mode,
+    )
+
+    started_at = dt.datetime.now(dt.timezone.utc)
+    started_monotonic = time.monotonic()
+    preflight = preflight_external_executable(invocation["argv"][0])
+    result: Optional[subprocess.CompletedProcess[str]] = None
+    error_message = ""
+    if preflight["status"] == "ok":
+        try:
+            result = subprocess.run(
+                invocation["argv"],
+                input=invocation["stdin"],
+                cwd=str(cwd),
+                text=True,
+                capture_output=True,
+                timeout=timeout_seconds,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as error:
+            error_message = f"external seat timed out after {timeout_seconds}s"
+            write_text(stdout_path, error.stdout or "")
+            write_text(stderr_path, error.stderr or "")
+        except OSError as error:
+            error_message = f"failed to run external seat: {error}"
+    else:
+        error_message = preflight["message"]
+
+    finished_at = dt.datetime.now(dt.timezone.utc)
+    duration_seconds = round(time.monotonic() - started_monotonic, 3)
+    stdout = result.stdout if result else read_text_if_exists(stdout_path)
+    stderr = result.stderr if result else read_text_if_exists(stderr_path)
+    exit_code = result.returncode if result else None
+    response = normalize_external_response(stdout)
+    write_text(stdout_path, stdout)
+    write_text(stderr_path, stderr)
+    write_text(response_path, response)
+
+    metadata = external_run_metadata(
+        config=config,
+        turn=turn,
+        provider=provider,
+        mode=mode,
+        requested_model=requested_model,
+        cwd=cwd,
+        timeout_seconds=timeout_seconds,
+        invocation=invocation,
+        preflight=preflight,
+        prompt_path=external_prompt,
+        prompt_text=prompt_text,
+        stdout_path=stdout_path,
+        stderr_path=stderr_path,
+        response_path=response_path,
+        started_at=started_at,
+        finished_at=finished_at,
+        duration_seconds=duration_seconds,
+        exit_code=exit_code,
+        error_message=error_message,
+    )
+    write_json(metadata_path, metadata)
+
+    if error_message:
+        raise CouncilError(f"{error_message}; metadata written to {metadata_path}")
+    if exit_code != 0:
+        raise CouncilError(
+            f"external seat exited with code {exit_code}; metadata written to {metadata_path}"
+        )
+    if not response.strip():
+        raise CouncilError(f"external seat produced empty stdout; metadata written to {metadata_path}")
+
+    actual_model = requested_model or f"{provider} harness default"
+    record_external_turn(
+        run_dir=run_dir,
+        config=config,
+        turn=turn,
+        response_path=response_path,
+        prompt_path=external_prompt,
+        actual_model=actual_model,
+    )
+    print(f"External seat recorded: {turn_output_path(run_dir, config, turn)}")
+    print(f"External metadata: {metadata_path}")
+    print(f"External response: {response_path}")
+    print(f"Transcript: {run_dir / 'transcript.md'}")
     return 0
 
 
@@ -327,11 +524,31 @@ def validate_config(value: Any, source: Path) -> Dict[str, Any]:
         if not isinstance(seat_name, str) or not seat_name.strip():
             raise CouncilError("config.seats keys must be non-empty strings")
         seat = require_record(seat_value, f"config.seats.{seat_name}")
-        normalized_seats[seat_name] = {
+        normalized_seat: Dict[str, Any] = {
             "model_slot": required_string(
                 seat.get("model_slot"), f"config.seats.{seat_name}.model_slot"
             )
         }
+        for field_name in ("provider", "command", "executable", "model", "mode", "prompt_file"):
+            optional = optional_string(seat.get(field_name), f"config.seats.{seat_name}.{field_name}")
+            if optional:
+                normalized_seat[field_name] = optional
+        if "provider" in normalized_seat and normalized_seat["provider"] not in EXTERNAL_PROVIDERS:
+            raise CouncilError(
+                f"config.seats.{seat_name}.provider must be one of: {', '.join(EXTERNAL_PROVIDERS)}"
+            )
+        if "mode" in normalized_seat and normalized_seat["mode"] not in EXTERNAL_MODES:
+            raise CouncilError(
+                f"config.seats.{seat_name}.mode must be one of: {', '.join(EXTERNAL_MODES)}"
+            )
+        timeout = seat.get("timeout_seconds")
+        if timeout is not None:
+            normalized_seat["timeout_seconds"] = required_int(
+                timeout,
+                f"config.seats.{seat_name}.timeout_seconds",
+                minimum=1,
+            )
+        normalized_seats[seat_name] = normalized_seat
     if not normalized_seats:
         raise CouncilError("config.seats must not be empty")
 
@@ -407,6 +624,9 @@ def validate_turn(
         "role": role,
         "instruction": instruction,
     }
+    prompt_file = optional_string(turn.get("prompt_file"), f"{label}.prompt_file")
+    if prompt_file:
+        normalized["prompt_file"] = prompt_file
     if allow_round:
         normalized["round"] = required_int(turn.get("round"), f"{label}.round", minimum=1, maximum=rounds)
     return normalized
@@ -493,6 +713,13 @@ def apply_profile(config: Dict[str, Any], profile: str) -> Dict[str, Any]:
     else:
         config.pop("profile_warnings", None)
     return config
+
+
+def resolved_config(config: Dict[str, Any], workdir: Path) -> Dict[str, Any]:
+    value = json.loads(json.dumps(config))
+    value["workdir"] = str(workdir)
+    value["resolved_at"] = dt.datetime.now(dt.timezone.utc).isoformat()
+    return value
 
 
 def profile_warnings(preset_name: str, profile: str) -> List[str]:
@@ -703,6 +930,39 @@ def turn_document(
     return "\n".join(lines)
 
 
+def record_external_turn(
+    *,
+    run_dir: Path,
+    config: Dict[str, Any],
+    turn: Dict[str, Any],
+    response_path: Path,
+    prompt_path: Path,
+    actual_model: str,
+) -> None:
+    stale_final = run_dir / "final.md"
+    if stale_final.exists():
+        stale_final.unlink()
+
+    target = turn_output_path(run_dir, config, turn)
+    prompt_target = turn_prompt_path(target)
+    archive_existing_record(target)
+    response = read_text(response_path)
+    prompt_text = read_text(prompt_path)
+    write_text(prompt_target, ensure_trailing_newline(prompt_text))
+    write_text(
+        target,
+        turn_document(
+            config=config,
+            turn=turn,
+            order_index=planned_turn_index(config, turn["name"]),
+            actual_model=actual_model,
+            prompt_name=prompt_target.name,
+            response=response,
+        ),
+    )
+    rewrite_transcript(run_dir, config)
+
+
 def planned_turn_by_name(config: Dict[str, Any], name: str) -> Dict[str, Any]:
     for turn in config["turns"]:
         if turn["name"] == name:
@@ -752,6 +1012,10 @@ def turn_prompt_path(turn_path: Path) -> Path:
     return turn_path.with_name(turn_path.stem + ".prompt.md")
 
 
+def external_turn_dir(run_dir: Path, turn: Dict[str, Any]) -> Path:
+    return run_dir / "external" / slug(turn["name"])
+
+
 def seat_model_slot(config: Dict[str, Any], seat_name: str) -> str:
     return config["seats"][seat_name]["model_slot"]
 
@@ -796,6 +1060,294 @@ def read_leading_bullets(path: Path) -> Dict[str, str]:
 
 def skill_dir() -> Path:
     return Path(__file__).resolve().parents[1]
+
+
+def prompt_file_for_external_seat(
+    prompt_file: str,
+    seat: Dict[str, Any],
+    turn: Dict[str, Any],
+    run_dir: Path,
+) -> Optional[Path]:
+    value = prompt_file or turn.get("prompt_file", "") or seat.get("prompt_file", "")
+    if not value:
+        return None
+    candidate = Path(value).expanduser()
+    if not candidate.is_absolute():
+        run_candidate = run_dir / candidate
+        if run_candidate.exists():
+            return run_candidate.resolve()
+        cwd_candidate = Path.cwd() / candidate
+        if cwd_candidate.exists():
+            return cwd_candidate.resolve()
+        skill_candidate = skill_dir() / candidate
+        if skill_candidate.exists():
+            return skill_candidate.resolve()
+        candidate = cwd_candidate
+    return candidate.resolve()
+
+
+def resolve_external_cwd(cwd_value: str, run_dir: Path) -> Path:
+    if cwd_value:
+        cwd = resolve_path(cwd_value)
+    else:
+        cwd = resolved_run_workdir(run_dir) or run_dir
+    assert_dir(cwd, "external cwd")
+    return cwd
+
+
+def resolved_run_workdir(run_dir: Path) -> Optional[Path]:
+    resolved_path = run_dir / "resolved-config.json"
+    if not resolved_path.exists():
+        return None
+    try:
+        value = json.loads(read_text(resolved_path))
+    except json.JSONDecodeError:
+        return None
+    workdir = value.get("workdir")
+    if not isinstance(workdir, str) or not workdir.strip():
+        return None
+    return Path(workdir).expanduser().resolve()
+
+
+def build_external_invocation(
+    *,
+    provider: str,
+    prompt: str,
+    prompt_path: Path,
+    command: str,
+    executable_override: str,
+    requested_model: str,
+    mode: str,
+) -> Dict[str, Any]:
+    if provider == "shell":
+        return build_shell_invocation(
+            command=command,
+            prompt=prompt,
+            prompt_path=prompt_path,
+            mode=mode,
+        )
+    if provider == "cursor":
+        return build_cursor_invocation(
+            executable=executable_override or "agent",
+            prompt=prompt,
+            requested_model=requested_model,
+            mode=mode,
+        )
+    if provider == "copilot":
+        return build_copilot_invocation(
+            executable=executable_override or "copilot",
+            prompt=prompt,
+            requested_model=requested_model,
+            mode=mode,
+        )
+    raise CouncilError(f"unknown external provider `{provider}`")
+
+
+def build_shell_invocation(
+    *,
+    command: str,
+    prompt: str,
+    prompt_path: Path,
+    mode: str,
+) -> Dict[str, Any]:
+    if not command.strip():
+        raise CouncilError("shell provider requires --command or seat.command")
+    argv = shlex.split(command)
+    if not argv:
+        raise CouncilError("shell provider command is empty")
+    stdin = prompt
+    argv_for_audit = list(argv)
+    for index, value in enumerate(argv):
+        if "{prompt}" in value:
+            argv[index] = value.replace("{prompt}", prompt)
+            argv_for_audit[index] = value.replace("{prompt}", "{prompt}")
+            stdin = None
+        if "{prompt_file}" in value:
+            argv[index] = value.replace("{prompt_file}", str(prompt_path))
+            argv_for_audit[index] = value.replace("{prompt_file}", str(prompt_path))
+            stdin = None
+    return {
+        "argv": resolve_external_argv(argv),
+        "argv_for_audit": argv_for_audit,
+        "stdin": stdin,
+        "stdin_prompt": stdin is not None,
+        "read_only_strategy": (
+            "caller-provided shell command; read-only is not guaranteed by the helper"
+            if mode == "read-only"
+            else "caller explicitly selected unrestricted shell execution"
+        ),
+    }
+
+
+def build_cursor_invocation(
+    *,
+    executable: str,
+    prompt: str,
+    requested_model: str,
+    mode: str,
+) -> Dict[str, Any]:
+    argv = [executable, "--print", "--output-format", "text"]
+    if mode == "read-only":
+        argv.extend(["--mode", "ask"])
+    if requested_model:
+        argv.extend(["--model", requested_model])
+    argv.append(prompt)
+    return {
+        "argv": resolve_external_argv(argv),
+        "argv_for_audit": redact_prompt_argument(argv, prompt),
+        "stdin": None,
+        "stdin_prompt": False,
+        "read_only_strategy": (
+            "Cursor Agent print mode with --mode ask; no --force/--yolo is added"
+            if mode == "read-only"
+            else "Cursor Agent print mode without read-only helper flags"
+        ),
+    }
+
+
+def build_copilot_invocation(
+    *,
+    executable: str,
+    prompt: str,
+    requested_model: str,
+    mode: str,
+) -> Dict[str, Any]:
+    argv = [
+        executable,
+        "--no-color",
+        "--no-auto-update",
+        "--no-remote",
+        "--stream",
+        "off",
+        "--silent",
+    ]
+    if mode == "read-only":
+        argv.append("--plan")
+    if requested_model:
+        argv.extend(["--model", requested_model])
+    argv.extend(["--prompt", prompt])
+    return {
+        "argv": resolve_external_argv(argv),
+        "argv_for_audit": redact_prompt_argument(argv, prompt),
+        "stdin": None,
+        "stdin_prompt": False,
+        "read_only_strategy": (
+            "GitHub Copilot CLI non-interactive prompt with --plan; no --allow-all/--yolo is added"
+            if mode == "read-only"
+            else "GitHub Copilot CLI non-interactive prompt without read-only helper flags"
+        ),
+    }
+
+
+def resolve_external_argv(argv: List[str]) -> List[str]:
+    resolved = find_executable(argv[0]) or argv[0]
+    return [resolved] + argv[1:]
+
+
+def find_executable(value: str) -> str:
+    path = Path(value).expanduser()
+    if path.parent != Path(".") or path.is_absolute():
+        if path.exists():
+            return str(path.resolve())
+        return ""
+    found = shutil.which(value)
+    return found or ""
+
+
+def preflight_external_executable(executable: str) -> Dict[str, Any]:
+    version_argv = [executable, "--version"]
+    try:
+        result = subprocess.run(
+            version_argv,
+            text=True,
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
+    except OSError as error:
+        return {
+            "status": "failed",
+            "message": f"failed to run version command for {executable}: {error}",
+            "version_argv": version_argv,
+        }
+    except subprocess.TimeoutExpired:
+        return {
+            "status": "failed",
+            "message": f"version command timed out for {executable}",
+            "version_argv": version_argv,
+        }
+    return {
+        "status": "ok",
+        "message": "version command completed",
+        "version_argv": version_argv,
+        "version_exit_code": result.returncode,
+        "version_stdout": result.stdout.strip(),
+        "version_stderr": result.stderr.strip(),
+    }
+
+
+def external_run_metadata(
+    *,
+    config: Dict[str, Any],
+    turn: Dict[str, Any],
+    provider: str,
+    mode: str,
+    requested_model: str,
+    cwd: Path,
+    timeout_seconds: int,
+    invocation: Dict[str, Any],
+    preflight: Dict[str, Any],
+    prompt_path: Path,
+    prompt_text: str,
+    stdout_path: Path,
+    stderr_path: Path,
+    response_path: Path,
+    started_at: dt.datetime,
+    finished_at: dt.datetime,
+    duration_seconds: float,
+    exit_code: Optional[int],
+    error_message: str,
+) -> Dict[str, Any]:
+    model_slot = seat_model_slot(config, turn["seat"])
+    return {
+        "provider": provider,
+        "mode": mode,
+        "read_only_strategy": invocation["read_only_strategy"],
+        "turn": turn["name"],
+        "seat": turn["seat"],
+        "role": turn["role"],
+        "model_slot": model_slot,
+        "model": requested_model or f"{provider} harness default",
+        "cwd": str(cwd),
+        "timeout_seconds": timeout_seconds,
+        "argv": invocation["argv_for_audit"],
+        "stdin_prompt": invocation["stdin_prompt"],
+        "preflight": preflight,
+        "prompt_file": str(prompt_path),
+        "prompt_sha256": hashlib.sha256(prompt_text.encode("utf-8")).hexdigest(),
+        "stdout_file": str(stdout_path),
+        "stderr_file": str(stderr_path),
+        "response_file": str(response_path),
+        "started_at": started_at.isoformat(),
+        "finished_at": finished_at.isoformat(),
+        "duration_seconds": duration_seconds,
+        "exit_code": exit_code,
+        "error": error_message,
+    }
+
+
+def normalize_external_response(stdout: str) -> str:
+    return ensure_trailing_newline(stdout.strip()) if stdout.strip() else ""
+
+
+def redact_prompt_argument(argv: List[str], prompt: str) -> List[str]:
+    return ["{prompt}" if value == prompt else value for value in argv]
+
+
+def read_text_if_exists(path: Path) -> str:
+    if not path.exists():
+        return ""
+    return read_text(path)
 
 
 def resolve_path(value: str) -> Path:
@@ -849,6 +1401,14 @@ def require_record(value: Any, field_name: str) -> Dict[str, Any]:
 def required_string(value: Any, field_name: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise CouncilError(f"{field_name} must be a non-empty string")
+    return value.strip()
+
+
+def optional_string(value: Any, field_name: str) -> str:
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise CouncilError(f"{field_name} must be a string")
     return value.strip()
 
 

@@ -63,13 +63,23 @@ editing, and delivery to the user.
    instruction. Give the subagent only that prompt, launch independent same-round
    turns in parallel, save the prompt and final response verbatim, then record.
    Use [references/prompt-template.md](references/prompt-template.md) for
-   non-smoke prompts:
+   non-smoke prompts. For Cursor, Copilot, or shell-backed seats, also read
+   [references/external-seats.md](references/external-seats.md):
 
    ```bash
    python3 "$COUNCIL_SCRIPT" record \
      --run-dir "<run-dir>" \
      --turn evidence-matrix \
      --from-file evidence-matrix.md \
+     --prompt-file evidence-matrix.prompt.md \
+     --model "<resolved-model>"
+   ```
+
+   ```bash
+   python3 "$COUNCIL_SCRIPT" run-shell-seat \
+     --run-dir "<run-dir>" \
+     --turn evidence-matrix \
+     --provider cursor \
      --prompt-file evidence-matrix.prompt.md \
      --model "<resolved-model>"
    ```
@@ -114,5 +124,7 @@ editing, and delivery to the user.
   non-smoke plan format and confirmation phrase.
 - [references/prompt-template.md](references/prompt-template.md): non-smoke
   turn prompt shape.
+- [references/external-seats.md](references/external-seats.md): Cursor,
+  Copilot, and generic shell-backed external seat execution.
 - [references/research-dossier.md](references/research-dossier.md): citation
   integrity and repaired-matrix doctrine.

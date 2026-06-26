@@ -1,0 +1,65 @@
+{
+  "name": "legacy-architecture-map",
+  "rounds": 4,
+  "stop_condition": "Map source material, reconstruct current architecture and API surface, audit evidence and legacy status, then let the chair produce a source-backed current-state architecture map.",
+  "seats": {
+    "source_cartographer": {
+      "model_slot": "balanced"
+    },
+    "current_state_analyst": {
+      "model_slot": "frontier"
+    },
+    "api_contract_mapper": {
+      "model_slot": "balanced"
+    },
+    "evidence_auditor": {
+      "model_slot": "frontier"
+    },
+    "chair_editor": {
+      "model_slot": "chair"
+    }
+  },
+  "turns": [
+    {
+      "name": "source-map",
+      "seat": "source_cartographer",
+      "role": "source_cartographer",
+      "round": 1,
+      "instruction": "Build a source inventory for the requested legacy subsystem. Identify the documentation, API specs, code areas, configuration, tests, logs, schemas, queues, services, and runtime integration points that appear relevant. Group sources by confidence and freshness. Mark each source as likely current, historical, stale-suspect, or unknown, and explain why. Do not produce the architecture map yet."
+    },
+    {
+      "name": "current-state-analysis",
+      "seat": "current_state_analyst",
+      "role": "current_state_analyst",
+      "round": 2,
+      "instruction": "Using the source map and the requested evidence, reconstruct the current-state architecture of the subsystem. Cover bounded context, responsibilities, runtime components, main flows, persistence, external services, messaging or integration points, configuration, operational concerns, and legacy strata. Classify claims as CURRENT_CONFIRMED, LEGACY_ACTIVE, LEGACY_COMPATIBILITY, DOC_ONLY, STALE_SUSPECT, INFERRED, or UNKNOWN. Cite file paths for every substantive claim."
+    },
+    {
+      "name": "api-contract-map",
+      "seat": "api_contract_mapper",
+      "role": "api_contract_mapper",
+      "round": 2,
+      "instruction": "Map the subsystem's public or internal API surface. Identify endpoints, commands, events, payload concepts, settings, authentication or trust boundaries when visible, and how API operations relate to domain flows and runtime components. Distinguish documented API, generated/spec API, implemented code, and inferred behavior. Cite file paths for every substantive claim and flag gaps between API docs/specs and code."
+    },
+    {
+      "name": "evidence-audit",
+      "seat": "evidence_auditor",
+      "role": "evidence_auditor",
+      "round": 3,
+      "instruction": "Audit the source map, current-state analysis, and API contract map for overreach, missing evidence, contradictions, stale documentation risk, and unsupported legacy/current labels. Produce a correction list using `claim -> evidence status -> recommended label or rewrite`. Verify that high-impact claims have concrete file-path evidence. End with a line that is exactly `ARCHITECTURE_MAP_INTEGRITY: PASS` or `ARCHITECTURE_MAP_INTEGRITY: FAIL`."
+    },
+    {
+      "name": "map-repair",
+      "seat": "current_state_analyst",
+      "role": "map_repairer",
+      "round": 4,
+      "instruction": "Repair the current-state architecture map using the evidence audit. Emit a canonical architecture map, not a patch annex. Preserve uncertainty explicitly, downgrade unsupported claims, and include a source index. Use the labels CURRENT_CONFIRMED, LEGACY_ACTIVE, LEGACY_COMPATIBILITY, DOC_ONLY, STALE_SUSPECT, INFERRED, and UNKNOWN consistently. Include open questions that matter for future project planning."
+    }
+  ],
+  "final": {
+    "name": "chair-architecture-map",
+    "seat": "chair_editor",
+    "role": "final_editor",
+    "instruction": "The chair normally writes the final source-backed architecture map from the canonical repaired map, API contract map, and evidence audit. Include Executive Summary, Scope, Source Index, Current-State Architecture, Main Flows, API Surface, Data and Integration Points, Legacy Strata, Evidence Labels, Contradictions and Stale-Suspect Areas, Open Questions, and Suggested Next Slices. State the decision grade and whether the map is project-planning-ready or only a first-pass baseline."
+  }
+}
