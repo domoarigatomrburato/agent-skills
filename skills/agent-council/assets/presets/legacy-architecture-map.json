@@ -25,7 +25,7 @@
       "seat": "source_cartographer",
       "role": "source_cartographer",
       "round": 1,
-      "instruction": "Build a source inventory for the requested legacy subsystem. Identify the documentation, API specs, code areas, configuration, tests, logs, schemas, queues, services, and runtime integration points that appear relevant. Group sources by confidence and freshness. Mark each source as likely current, historical, stale-suspect, or unknown, and explain why. Do not produce the architecture map yet."
+      "instruction": "Build a source inventory for the requested legacy subsystem. Identify the documentation, API specs, code areas, configuration, tests, logs, schemas, queues, services, and runtime integration points that appear relevant. For configuration/default/schema files, check encoding-aware paths too: use file metadata and text extraction tactics such as rg --text, strings, iconv, or equivalent when normal text search may skip binary/UTF-16-ish files. Group sources by confidence and freshness. Mark each source as likely current, historical, stale-suspect, or unknown, and explain why. Do not produce the architecture map yet."
     },
     {
       "name": "current-state-analysis",

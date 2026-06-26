@@ -42,7 +42,8 @@ records the actual model used for every turn.
 - `stop_condition`: concise description of when the council is done.
 - `seats`: epistemic seat names to capability-oriented `model_slot` values.
   External seats may also set `provider`, `model`, `executable`, `command`,
-  `mode`, `timeout_seconds`, or `prompt_file`; see
+  `mode`, `timeout_seconds`, `prompt_file`, `external_cwd`,
+  `prompt_transport`, or `cursor_trust`; see
   [external-seats.md](external-seats.md).
 - `turns`: planned discussion turns. Each `name` must be unique.
   Turns may set `prompt_file` for reusable prompt files.
@@ -77,9 +78,10 @@ mismatched.
 
 ## Prompt Construction
 
-The script does not build prompts. The chair does.
+The chair owns prompt quality. For non-trivial runs, use `scaffold-run` to
+draft brief, plan, and prompt stubs, then edit them before execution.
 
-For each turn, construct a prompt from:
+For each turn, construct or edit a prompt from:
 
 1. `brief.md`
 2. relevant repository or user context

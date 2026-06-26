@@ -11,14 +11,18 @@ the run; Cursor, Copilot, or another CLI acts as one council seat.
 - Record degraded mode in `council-plan.md` before continuing without the
   external seat.
 - Do not pass secrets in prompts, config, model names, or command arguments.
+- If an external CLI needs workspace trust, get explicit user authorization and
+  record it in `council-plan.md`.
 
 ## Providers
 
 `run-shell-seat` supports three shell-backed providers:
 
 - `cursor`: invokes Cursor Agent as `agent --print --output-format text --mode
-  ask [--model <model>] "{prompt}"`. `--mode ask` is the default read-only
-  posture; the helper does not add `--force` or `--yolo`.
+  ask [--model <model>]` and sends the prompt on stdin by default. `--mode ask`
+  is the default read-only posture; the helper does not add `--force` or
+  `--yolo`. Add `--cursor-trust` or seat `cursor_trust: true` only after the
+  user explicitly authorizes Cursor workspace trust.
 - `copilot`: invokes GitHub Copilot CLI as `copilot --no-color
   --no-auto-update --no-remote --stream off --silent --plan [--model <model>]
   --prompt "{prompt}"`. The helper does not add `--allow-all`, `--allow-all-tools`,
@@ -35,6 +39,13 @@ agent --help
 copilot --help
 ```
 
+## Access Envelope
+
+External CLIs may restrict file reads to their cwd or trusted workspace. Choose
+a cwd that includes both the target repo and the run directory, or put the run
+directory inside the target workspace. Use `--cwd` or seat `external_cwd` when
+the default run workdir is too narrow. Record the choice in the confirmed plan.
+
 ## Model Discovery
 
 Treat `provider` and `model` as separate choices. The user may ask for the same
@@ -48,6 +59,15 @@ Cursor has a script-friendly model discovery command:
 
 ```bash
 agent models
+```
+
+The helper can capture that output:
+
+```bash
+python3 "$COUNCIL_SCRIPT" discover-models \
+  --provider cursor \
+  --probe-model composer-2.5 \
+  --out council-prep
 ```
 
 Use the exact model id from that output with `--model`. The local Cursor CLI
@@ -85,6 +105,16 @@ copilot --no-color --no-auto-update --no-remote \
   --prompt "Reply exactly: OK"
 ```
 
+The helper can capture a candidate list prompt and/or probe:
+
+```bash
+python3 "$COUNCIL_SCRIPT" discover-models \
+  --provider copilot \
+  --ask-list \
+  --probe-model claude-opus-4.8 \
+  --out council-prep
+```
+
 If the probe exits non-zero, mark the external seat unavailable. Do not silently
 fall back to another model or to Codex.
 
@@ -103,8 +133,12 @@ python3 "$COUNCIL_SCRIPT" run-shell-seat \
   --turn evidence-matrix \
   --provider cursor \
   --prompt-file evidence-matrix.prompt.md \
-  --model "sonnet-4-thinking"
+  --model "composer-2.5"
 ```
+
+Use `--cursor-trust` only when the user explicitly authorized trust for that
+workspace. Cursor prompt transport defaults to stdin; use
+`--prompt-transport argument` only for compatibility troubleshooting.
 
 For Copilot:
 
@@ -139,8 +173,9 @@ On success, the helper records the turn into `turns/` and rebuilds
 - `metadata.json`
 
 `metadata.json` includes provider, mode, read-only strategy, cwd, timeout,
-redacted argv, version preflight output, prompt hash, stdout/stderr/response
-paths, exit code, duration, and error text when present.
+redacted argv, prompt transport, Cursor trust state, version preflight output,
+prompt hash, stdout/stderr/response paths, exit code, duration, and error text
+when present.
 
 ## Preset Fields
 
@@ -150,8 +185,11 @@ Seat definitions may include external defaults:
 "evidence_cursor": {
   "model_slot": "balanced",
   "provider": "cursor",
-  "model": "sonnet-4-thinking",
+  "model": "composer-2.5",
   "mode": "read-only",
+  "external_cwd": "/path/that/covers/repo/and/run",
+  "prompt_transport": "stdin",
+  "cursor_trust": true,
   "timeout_seconds": 1800
 }
 ```

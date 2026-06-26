@@ -30,4 +30,9 @@ You are the `[seat]` seat for an `agent-council` run.
 ## Output Contract
 
 [turn-specific output requirements]
+
+- Emit the complete deliverable in this response/stdout.
+- Do not save only a separate artifact, session note, or progress summary.
+- If evidence is missing, say exactly what is missing and keep the claim
+  downgraded.
 ```

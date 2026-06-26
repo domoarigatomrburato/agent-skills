@@ -36,34 +36,44 @@ editing, and delivery to the user.
    and decision grade. Use
    [references/council-plan-template.md](references/council-plan-template.md)
    when drafting the plan.
-3. Save the confirmed plan, then start the run:
+3. For non-trivial runs, scaffold the boilerplate before starting. Review and
+   edit the draft plan, get confirmation, then start the run:
 
    ```bash
    COUNCIL_SCRIPT="/path/to/agent-council/scripts/council.py"
    PROJECT_ROOT="$(pwd)"
 
+   python3 "$COUNCIL_SCRIPT" scaffold-run \
+     --preset research-dossier-budget \
+     --profile budget \
+     --topic "<topic>" \
+     --workdir "$PROJECT_ROOT" \
+     --out council-prep
+
    python3 "$COUNCIL_SCRIPT" start \
      --preset research-dossier-budget \
      --profile budget \
-     --plan-file council-plan.md \
-     --topic "<topic>" \
+     --brief-file council-prep/brief.md \
+     --plan-file council-prep/council-plan.md \
      --workdir "$PROJECT_ROOT"
 
    # Equivalent shorthand for the budget profile.
    python3 "$COUNCIL_SCRIPT" start \
      --preset research-dossier-budget \
      --budget \
-     --plan-file council-plan.md \
-     --topic "<topic>" \
+     --brief-file council-prep/brief.md \
+     --plan-file council-prep/council-plan.md \
      --workdir "$PROJECT_ROOT"
    ```
 
 4. For each planned turn, build a fresh prompt from `brief.md`, relevant
    repository or user context, transcript/turn file paths, and the turn
-   instruction. Give the subagent only that prompt, launch independent same-round
-   turns in parallel, save the prompt and final response verbatim, then record.
-   Use [references/prompt-template.md](references/prompt-template.md) for
-   non-smoke prompts. For Cursor, Copilot, or shell-backed seats, also read
+   instruction. `start` writes editable stubs under `prompts/`; complete those
+   stubs before execution. Give the subagent only that prompt, launch
+   independent same-round turns in parallel, save the prompt and final response
+   verbatim, then record. Use
+   [references/prompt-template.md](references/prompt-template.md) for non-smoke
+   prompts. For Cursor, Copilot, or shell-backed seats, also read
    [references/external-seats.md](references/external-seats.md):
 
    ```bash
@@ -123,7 +133,7 @@ editing, and delivery to the user.
 - [references/council-plan-template.md](references/council-plan-template.md):
   non-smoke plan format and confirmation phrase.
 - [references/prompt-template.md](references/prompt-template.md): non-smoke
-  turn prompt shape.
+  turn prompt shape and external-seat output contract.
 - [references/external-seats.md](references/external-seats.md): Cursor,
   Copilot, and generic shell-backed external seat execution.
 - [references/research-dossier.md](references/research-dossier.md): citation

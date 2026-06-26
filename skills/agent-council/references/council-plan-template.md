@@ -20,6 +20,12 @@ asking the user to confirm.
 | --- | --- | --- | --- | --- |
 | [seat] | [role] | [slot] | [model or harness default] | [why this is suitable] |
 
+## External Seat Access
+
+| seat | provider | cwd/access envelope | trust authorization | discovery/probe artifact |
+| --- | --- | --- | --- | --- |
+| [seat or n/a] | [cursor/copilot/shell] | [cwd covers repo and run-dir?] | [none or explicit user authorization] | [path or n/a] |
+
 ## Limitations
 
 - [budget, vendor, model-selection, source-access, or time limitation]

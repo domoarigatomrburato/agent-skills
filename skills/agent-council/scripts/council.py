@@ -21,6 +21,7 @@ DEFAULT_OUTPUT_ROOT = "/tmp/agent-council"
 PROFILES = ("smoke", "budget", "standard", "premium")
 EXTERNAL_PROVIDERS = ("shell", "cursor", "copilot")
 EXTERNAL_MODES = ("read-only", "unrestricted")
+PROMPT_TRANSPORTS = ("auto", "stdin", "argument")
 
 
 class CouncilError(Exception):
@@ -61,6 +62,38 @@ def build_parser() -> argparse.ArgumentParser:
         help="confirmed preflight plan to copy into council-plan.md",
     )
     start.set_defaults(handler=command_start)
+
+    scaffold = subparsers.add_parser(
+        "scaffold-run",
+        help="draft brief, plan, and prompt files from a preset before a run",
+    )
+    scaffold.add_argument("--preset", required=True, help="preset name or JSON path")
+    scaffold.add_argument("--topic", default="", help="short topic for generated brief.md")
+    scaffold.add_argument("--brief-file", default="", help="markdown brief to copy into the scaffold")
+    scaffold.add_argument("--workdir", required=True, help="target project directory")
+    scaffold.add_argument(
+        "--out",
+        required=True,
+        help="directory where scaffold files will be written",
+    )
+    scaffold.add_argument(
+        "--profile",
+        choices=PROFILES,
+        default="standard",
+        help="run profile: smoke, budget, standard, or premium",
+    )
+    scaffold.add_argument(
+        "--budget",
+        action="store_true",
+        help="shortcut for --profile budget",
+    )
+    scaffold.add_argument(
+        "--extra-context-file",
+        action="append",
+        default=[],
+        help="additional source/context file path to include in every prompt stub",
+    )
+    scaffold.set_defaults(handler=command_scaffold_run)
 
     record = subparsers.add_parser("record", help="record a planned turn")
     record.add_argument("--run-dir", required=True, help="run directory from start")
@@ -132,7 +165,48 @@ def build_parser() -> argparse.ArgumentParser:
         default=0,
         help="external CLI timeout; defaults to seat timeout or 1800",
     )
+    run_shell.add_argument(
+        "--prompt-transport",
+        choices=PROMPT_TRANSPORTS,
+        default="",
+        help="how to pass provider prompts; defaults to seat.prompt_transport or auto",
+    )
+    run_shell.add_argument(
+        "--cursor-trust",
+        action="store_true",
+        help="pass Cursor Agent --trust; use only after explicit user authorization",
+    )
     run_shell.set_defaults(handler=command_run_shell_seat)
+
+    discover = subparsers.add_parser(
+        "discover-models",
+        help="record external provider model discovery/probe artifacts",
+    )
+    discover.add_argument("--provider", choices=("cursor", "copilot"), required=True)
+    discover.add_argument("--executable", default="", help="override provider executable")
+    discover.add_argument("--cwd", default="", help="working directory for provider commands")
+    discover.add_argument(
+        "--out",
+        default=DEFAULT_OUTPUT_ROOT,
+        help=f"output root for discovery artifacts (default: {DEFAULT_OUTPUT_ROOT})",
+    )
+    discover.add_argument(
+        "--probe-model",
+        default="",
+        help="model slug to probe with a tiny read-only prompt",
+    )
+    discover.add_argument(
+        "--ask-list",
+        action="store_true",
+        help="for Copilot, ask the CLI to list available model IDs as candidate discovery",
+    )
+    discover.add_argument(
+        "--timeout-seconds",
+        type=int,
+        default=120,
+        help="timeout for each discovery command",
+    )
+    discover.set_defaults(handler=command_discover_models)
 
     finalize = subparsers.add_parser("finalize", help="write final.md from a synthesis file")
     finalize.add_argument("--run-dir", required=True, help="run directory from start")
@@ -192,6 +266,7 @@ def command_start(args: argparse.Namespace) -> int:
     write_text(run_dir / "brief.md", brief)
     write_text(run_dir / "council-plan.md", plan)
     write_text(run_dir / "transcript.md", transcript_document(config, run_dir))
+    write_prompt_stubs(run_dir=run_dir, config=config, extra_context=[])
 
     print(f"Run started: {run_dir}")
     print(f"Preset: {config_path}")
@@ -200,6 +275,7 @@ def command_start(args: argparse.Namespace) -> int:
         print(f"Warning: {warning}", file=sys.stderr)
     print(f"Plan: {run_dir / 'council-plan.md'}")
     print(f"Brief: {run_dir / 'brief.md'}")
+    print(f"Prompt stubs: {run_dir / 'prompts'}")
     print(f"Transcript: {run_dir / 'transcript.md'}")
     print("Planned turns:")
     for index, turn in enumerate(config["turns"], start=1):
@@ -212,6 +288,54 @@ def command_start(args: argparse.Namespace) -> int:
         f"- final: name={final_turn['name']} seat={final_turn['seat']} "
         f"role={final_turn['role']} model_slot={seat_model_slot(config, final_turn['seat'])}"
     )
+    return 0
+
+
+def command_scaffold_run(args: argparse.Namespace) -> int:
+    config_path = resolve_preset(args.preset)
+    config = load_config(config_path)
+    profile = resolve_profile(args.profile, args.budget)
+    config = apply_profile(config, profile)
+    workdir = resolve_path(args.workdir)
+    assert_dir(workdir, "workdir")
+    scaffold_dir = resolve_path(args.out)
+    scaffold_dir.mkdir(parents=True, exist_ok=True)
+
+    brief = load_brief(topic=args.topic, brief_file=args.brief_file, workdir=workdir)
+    plan = draft_plan_document(config=config, profile=profile, workdir=workdir)
+    write_json(scaffold_dir / "config.json", config)
+    write_json(scaffold_dir / "resolved-config.json", resolved_config(config, workdir))
+    write_text(scaffold_dir / "brief.md", brief)
+    write_text(scaffold_dir / "council-plan.md", plan)
+
+    prompts_dir = scaffold_dir / "prompts"
+    extra_context = [str(resolve_path(value)) for value in args.extra_context_file]
+    for turn in config["turns"]:
+        write_text(
+            prompts_dir / f"{slug(turn['name'])}.prompt.md",
+            scaffold_prompt_document(
+                config=config,
+                turn=turn,
+                run_dir_placeholder="<run-dir-after-start>",
+                extra_context=extra_context,
+            ),
+        )
+
+    write_text(
+        scaffold_dir / "start-command.txt",
+        scaffold_start_command(
+            preset_arg=args.preset,
+            profile=profile,
+            scaffold_dir=scaffold_dir,
+            workdir=workdir,
+        ),
+    )
+
+    print(f"Scaffold written: {scaffold_dir}")
+    print(f"Brief: {scaffold_dir / 'brief.md'}")
+    print(f"Plan draft: {scaffold_dir / 'council-plan.md'}")
+    print(f"Prompt stubs: {prompts_dir}")
+    print(f"Start command: {scaffold_dir / 'start-command.txt'}")
     return 0
 
 
@@ -242,10 +366,14 @@ def command_run_shell_seat(args: argparse.Namespace) -> int:
     if timeout_seconds <= 0:
         raise CouncilError("--timeout-seconds must be > 0")
 
-    cwd = resolve_external_cwd(args.cwd, run_dir)
+    cwd = resolve_external_cwd(args.cwd or seat.get("external_cwd", ""), run_dir)
     command = args.command or seat.get("command", "")
     executable_override = args.executable or seat.get("executable", "")
     requested_model = args.model or seat.get("model", "")
+    prompt_transport = args.prompt_transport or seat.get("prompt_transport", "auto")
+    if prompt_transport not in PROMPT_TRANSPORTS:
+        raise CouncilError(f"prompt transport must be one of: {', '.join(PROMPT_TRANSPORTS)}")
+    cursor_trust = args.cursor_trust or bool(seat.get("cursor_trust", False))
 
     external_dir = external_turn_dir(run_dir, turn)
     external_dir.mkdir(parents=True, exist_ok=True)
@@ -263,6 +391,8 @@ def command_run_shell_seat(args: argparse.Namespace) -> int:
         executable_override=executable_override,
         requested_model=requested_model,
         mode=mode,
+        prompt_transport=prompt_transport,
+        cursor_trust=cursor_trust,
     )
 
     started_at = dt.datetime.now(dt.timezone.utc)
@@ -320,6 +450,8 @@ def command_run_shell_seat(args: argparse.Namespace) -> int:
         duration_seconds=duration_seconds,
         exit_code=exit_code,
         error_message=error_message,
+        prompt_transport=prompt_transport,
+        cursor_trust=cursor_trust,
     )
     write_json(metadata_path, metadata)
 
@@ -345,6 +477,97 @@ def command_run_shell_seat(args: argparse.Namespace) -> int:
     print(f"External metadata: {metadata_path}")
     print(f"External response: {response_path}")
     print(f"Transcript: {run_dir / 'transcript.md'}")
+    return 0
+
+
+def command_discover_models(args: argparse.Namespace) -> int:
+    if args.timeout_seconds <= 0:
+        raise CouncilError("--timeout-seconds must be > 0")
+    executable = args.executable or ("agent" if args.provider == "cursor" else "copilot")
+    executable = find_executable(executable) or executable
+    cwd = resolve_path(args.cwd) if args.cwd else Path.cwd().resolve()
+    assert_dir(cwd, "discovery cwd")
+
+    discovery_dir = make_discovery_dir(resolve_path(args.out), args.provider)
+    runs: List[Dict[str, Any]] = []
+    preflight = preflight_external_executable(executable)
+    write_json(discovery_dir / "preflight.json", preflight)
+
+    if args.provider == "cursor":
+        runs.append(
+            run_discovery_command(
+                name="cursor-models",
+                argv=[executable, "models"],
+                cwd=cwd,
+                timeout_seconds=args.timeout_seconds,
+                output_dir=discovery_dir,
+            )
+        )
+    elif args.ask_list:
+        runs.append(
+            run_discovery_command(
+                name="copilot-list-candidate",
+                argv=build_copilot_discovery_argv(
+                    executable,
+                    "List all available model IDs exposed by this local Copilot CLI session. "
+                    "Return only model IDs, one per line, and include no prose.",
+                    model="",
+                ),
+                cwd=cwd,
+                timeout_seconds=args.timeout_seconds,
+                output_dir=discovery_dir,
+            )
+        )
+
+    if args.probe_model:
+        if args.provider == "cursor":
+            probe_argv = [
+                executable,
+                "--print",
+                "--output-format",
+                "text",
+                "--mode",
+                "ask",
+                "--model",
+                args.probe_model,
+            ]
+            probe_stdin = "Reply exactly: OK"
+        else:
+            probe_argv = build_copilot_discovery_argv(
+                executable,
+                "Reply exactly: OK",
+                model=args.probe_model,
+            )
+            probe_stdin = None
+        runs.append(
+            run_discovery_command(
+                name=f"probe-{slug(args.probe_model)}",
+                argv=probe_argv,
+                cwd=cwd,
+                timeout_seconds=args.timeout_seconds,
+                output_dir=discovery_dir,
+                stdin=probe_stdin,
+            )
+        )
+
+    write_json(
+        discovery_dir / "metadata.json",
+        {
+            "provider": args.provider,
+            "executable": executable,
+            "cwd": str(cwd),
+            "timeout_seconds": args.timeout_seconds,
+            "probe_model": args.probe_model,
+            "ask_list": args.ask_list,
+            "preflight": preflight,
+            "runs": runs,
+        },
+    )
+    print(f"Discovery artifacts: {discovery_dir}")
+    for item in runs:
+        print(f"- {item['name']}: exit={item['exit_code']} stdout={item['stdout_file']}")
+    if not runs:
+        print("- no discovery command requested; preflight only")
     return 0
 
 
@@ -519,7 +742,7 @@ def validate_config(value: Any, source: Path) -> Dict[str, Any]:
     rounds = required_int(config.get("rounds"), "config.rounds", minimum=1)
 
     seats = require_record(config.get("seats"), "config.seats")
-    normalized_seats: Dict[str, Dict[str, str]] = {}
+    normalized_seats: Dict[str, Dict[str, Any]] = {}
     for seat_name, seat_value in seats.items():
         if not isinstance(seat_name, str) or not seat_name.strip():
             raise CouncilError("config.seats keys must be non-empty strings")
@@ -529,7 +752,16 @@ def validate_config(value: Any, source: Path) -> Dict[str, Any]:
                 seat.get("model_slot"), f"config.seats.{seat_name}.model_slot"
             )
         }
-        for field_name in ("provider", "command", "executable", "model", "mode", "prompt_file"):
+        for field_name in (
+            "provider",
+            "command",
+            "executable",
+            "model",
+            "mode",
+            "prompt_file",
+            "external_cwd",
+            "prompt_transport",
+        ):
             optional = optional_string(seat.get(field_name), f"config.seats.{seat_name}.{field_name}")
             if optional:
                 normalized_seat[field_name] = optional
@@ -541,6 +773,17 @@ def validate_config(value: Any, source: Path) -> Dict[str, Any]:
             raise CouncilError(
                 f"config.seats.{seat_name}.mode must be one of: {', '.join(EXTERNAL_MODES)}"
             )
+        if (
+            "prompt_transport" in normalized_seat
+            and normalized_seat["prompt_transport"] not in PROMPT_TRANSPORTS
+        ):
+            raise CouncilError(
+                f"config.seats.{seat_name}.prompt_transport must be one of: "
+                f"{', '.join(PROMPT_TRANSPORTS)}"
+            )
+        cursor_trust = optional_bool(seat.get("cursor_trust"), f"config.seats.{seat_name}.cursor_trust")
+        if cursor_trust is not None:
+            normalized_seat["cursor_trust"] = cursor_trust
         timeout = seat.get("timeout_seconds")
         if timeout is not None:
             normalized_seat["timeout_seconds"] = required_int(
@@ -607,7 +850,7 @@ def validate_turn(
     value: Any,
     label: str,
     *,
-    seats: Dict[str, Dict[str, str]],
+    seats: Dict[str, Dict[str, Any]],
     allow_round: bool,
     rounds: int,
 ) -> Dict[str, Any]:
@@ -665,6 +908,162 @@ def load_plan(*, plan_file: str, profile: str) -> str:
     )
 
 
+def draft_plan_document(*, config: Dict[str, Any], profile: str, workdir: Path) -> str:
+    lines = [
+        "# Council Plan",
+        "",
+        "- status: DRAFT - chair must confirm with the user before `start` for non-smoke runs",
+        f"- preset: {config['name']}",
+        f"- profile: {profile}",
+        f"- target_workdir: `{workdir}`",
+        f"- stop_condition: {config['stop_condition']}",
+        "- decision_grade: TODO",
+        "- model_diversity: TODO",
+        "- confirmation: TODO",
+        "",
+        "## Seats",
+        "",
+    ]
+    for seat_name, seat in config["seats"].items():
+        provider = seat.get("provider", "chair/subagent")
+        model = seat.get("model", "TODO")
+        lines.append(f"- `{seat_name}`: slot `{seat['model_slot']}`, provider `{provider}`, model `{model}`")
+    lines.extend(["", "## Turns", ""])
+    for index, turn in enumerate(config["turns"], start=1):
+        lines.append(
+            f"{index}. `{turn['name']}`: round {turn['round']}, seat `{turn['seat']}`, "
+            f"role `{turn['role']}`"
+        )
+    final_turn = config["final"]
+    lines.extend(
+        [
+            "",
+            "## External Seat Access",
+            "",
+            "| seat | provider | cwd/access envelope | trust authorization | discovery/probe artifact |",
+            "| --- | --- | --- | --- | --- |",
+        ]
+    )
+    external_rows = 0
+    for seat_name, seat in config["seats"].items():
+        provider = seat.get("provider", "")
+        if not provider:
+            continue
+        external_rows += 1
+        cwd = seat.get("external_cwd", "TODO")
+        trust = "TODO" if provider == "cursor" else "n/a"
+        lines.append(f"| `{seat_name}` | `{provider}` | `{cwd}` | {trust} | TODO |")
+    if external_rows == 0:
+        lines.append("| n/a | n/a | n/a | n/a | n/a |")
+    lines.extend(
+        [
+            "",
+            "## Final",
+            "",
+            f"- `{final_turn['name']}`: seat `{final_turn['seat']}`, role `{final_turn['role']}`",
+            "",
+            "## Limitations",
+            "",
+            "- TODO: record model discovery/probe limitations.",
+            "- TODO: record external CLI cwd/access envelope if using Cursor, Copilot, or shell seats.",
+        ]
+    )
+    return "\n".join(lines) + "\n"
+
+
+def scaffold_prompt_document(
+    *,
+    config: Dict[str, Any],
+    turn: Dict[str, Any],
+    run_dir_placeholder: str,
+    extra_context: List[str],
+) -> str:
+    run_dir = Path(run_dir_placeholder)
+    prior_turns = [candidate for candidate in config["turns"] if candidate["round"] < turn["round"]]
+    lines = [
+        "# Agent Council Seat Prompt",
+        "",
+        f"You are the `{turn['seat']}` seat for an `agent-council` run.",
+        "",
+        "## Role",
+        "",
+        turn["instruction"].strip(),
+        "",
+        "## Read These Files",
+        "",
+        f"- Brief: `{run_dir / 'brief.md'}`",
+        f"- Transcript: `{run_dir / 'transcript.md'}`",
+        f"- Council plan: `{run_dir / 'council-plan.md'}`",
+    ]
+    if prior_turns:
+        lines.append("- Prior turn files:")
+        for prior in prior_turns:
+            lines.append(f"  - `{turn_output_path(run_dir, config, prior)}`")
+    if extra_context:
+        lines.append("- Extra context files:")
+        lines.extend(f"  - `{path}`" for path in extra_context)
+    lines.extend(
+        [
+            "",
+            "## Constraints",
+            "",
+            "- Read-only: do not modify project files.",
+            "- Work from the files listed above, not from private chair context.",
+            "- Preserve material uncertainty and disagreement.",
+            "- Cite file paths or source URLs for claims that depend on evidence.",
+            "",
+            "## Output Contract",
+            "",
+            "- Emit the complete deliverable in this response/stdout.",
+            "- Do not save only a separate artifact or session note.",
+            "- If evidence is missing, say exactly what is missing and keep the claim downgraded.",
+        ]
+    )
+    return "\n".join(lines) + "\n"
+
+
+def write_prompt_stubs(*, run_dir: Path, config: Dict[str, Any], extra_context: List[str]) -> Path:
+    prompts_dir = run_dir / "prompts"
+    for turn in config["turns"]:
+        write_text(
+            prompts_dir / f"{slug(turn['name'])}.prompt.md",
+            scaffold_prompt_document(
+                config=config,
+                turn=turn,
+                run_dir_placeholder=str(run_dir),
+                extra_context=extra_context,
+            ),
+        )
+    return prompts_dir
+
+
+def scaffold_start_command(
+    *,
+    preset_arg: str,
+    profile: str,
+    scaffold_dir: Path,
+    workdir: Path,
+) -> str:
+    argv = [
+        "python3",
+        str(Path(__file__).resolve()),
+        "start",
+        "--preset",
+        preset_arg,
+        "--profile",
+        profile,
+        "--brief-file",
+        str(scaffold_dir / "brief.md"),
+        "--plan-file",
+        str(scaffold_dir / "council-plan.md"),
+        "--workdir",
+        str(workdir),
+        "--out",
+        str(scaffold_dir),
+    ]
+    return shlex.join(argv) + "\n"
+
+
 def resolve_preset(value: str) -> Path:
     candidate = Path(value).expanduser()
     if candidate.exists():
@@ -688,6 +1087,19 @@ def make_run_dir(output_root: Path) -> Path:
     suffix = 1
     while candidate.exists():
         candidate = runs_root / f"{timestamp}-{suffix}"
+        suffix += 1
+    candidate.mkdir(parents=True)
+    return candidate
+
+
+def make_discovery_dir(output_root: Path, provider: str) -> Path:
+    discovery_root = output_root / "model-discovery"
+    discovery_root.mkdir(parents=True, exist_ok=True)
+    timestamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
+    candidate = discovery_root / f"{timestamp}-{provider}"
+    suffix = 1
+    while candidate.exists():
+        candidate = discovery_root / f"{timestamp}-{provider}-{suffix}"
         suffix += 1
     candidate.mkdir(parents=True)
     return candidate
@@ -1118,6 +1530,8 @@ def build_external_invocation(
     executable_override: str,
     requested_model: str,
     mode: str,
+    prompt_transport: str,
+    cursor_trust: bool,
 ) -> Dict[str, Any]:
     if provider == "shell":
         return build_shell_invocation(
@@ -1132,6 +1546,8 @@ def build_external_invocation(
             prompt=prompt,
             requested_model=requested_model,
             mode=mode,
+            prompt_transport=prompt_transport,
+            cursor_trust=cursor_trust,
         )
     if provider == "copilot":
         return build_copilot_invocation(
@@ -1139,6 +1555,7 @@ def build_external_invocation(
             prompt=prompt,
             requested_model=requested_model,
             mode=mode,
+            prompt_transport=prompt_transport,
         )
     raise CouncilError(f"unknown external provider `{provider}`")
 
@@ -1171,6 +1588,8 @@ def build_shell_invocation(
         "argv_for_audit": argv_for_audit,
         "stdin": stdin,
         "stdin_prompt": stdin is not None,
+        "cursor_trust": False,
+        "prompt_transport": "stdin" if stdin is not None else "argument",
         "read_only_strategy": (
             "caller-provided shell command; read-only is not guaranteed by the helper"
             if mode == "read-only"
@@ -1185,23 +1604,31 @@ def build_cursor_invocation(
     prompt: str,
     requested_model: str,
     mode: str,
+    prompt_transport: str,
+    cursor_trust: bool,
 ) -> Dict[str, Any]:
     argv = [executable, "--print", "--output-format", "text"]
+    if cursor_trust:
+        argv.append("--trust")
     if mode == "read-only":
         argv.extend(["--mode", "ask"])
     if requested_model:
         argv.extend(["--model", requested_model])
-    argv.append(prompt)
+    use_stdin = prompt_transport in ("auto", "stdin")
+    if not use_stdin:
+        argv.append(prompt)
     return {
         "argv": resolve_external_argv(argv),
         "argv_for_audit": redact_prompt_argument(argv, prompt),
-        "stdin": None,
-        "stdin_prompt": False,
+        "stdin": prompt if use_stdin else None,
+        "stdin_prompt": use_stdin,
         "read_only_strategy": (
             "Cursor Agent print mode with --mode ask; no --force/--yolo is added"
             if mode == "read-only"
             else "Cursor Agent print mode without read-only helper flags"
         ),
+        "cursor_trust": cursor_trust,
+        "prompt_transport": "stdin" if use_stdin else "argument",
     }
 
 
@@ -1211,7 +1638,10 @@ def build_copilot_invocation(
     prompt: str,
     requested_model: str,
     mode: str,
+    prompt_transport: str,
 ) -> Dict[str, Any]:
+    if prompt_transport == "stdin":
+        raise CouncilError("copilot provider does not support prompt_transport=stdin")
     argv = [
         executable,
         "--no-color",
@@ -1231,12 +1661,94 @@ def build_copilot_invocation(
         "argv_for_audit": redact_prompt_argument(argv, prompt),
         "stdin": None,
         "stdin_prompt": False,
+        "cursor_trust": False,
+        "prompt_transport": "argument",
         "read_only_strategy": (
             "GitHub Copilot CLI non-interactive prompt with --plan; no --allow-all/--yolo is added"
             if mode == "read-only"
             else "GitHub Copilot CLI non-interactive prompt without read-only helper flags"
         ),
     }
+
+
+def build_copilot_discovery_argv(executable: str, prompt: str, *, model: str) -> List[str]:
+    argv = [
+        executable,
+        "--no-color",
+        "--no-auto-update",
+        "--no-remote",
+        "--no-custom-instructions",
+        "--disable-builtin-mcps",
+        "--stream",
+        "off",
+        "--silent",
+        "--plan",
+    ]
+    if model:
+        argv.extend(["--model", model])
+    argv.extend(["--prompt", prompt])
+    return argv
+
+
+def run_discovery_command(
+    *,
+    name: str,
+    argv: List[str],
+    cwd: Path,
+    timeout_seconds: int,
+    output_dir: Path,
+    stdin: Optional[str] = None,
+) -> Dict[str, Any]:
+    started_at = dt.datetime.now(dt.timezone.utc)
+    started_monotonic = time.monotonic()
+    stdout_path = output_dir / f"{name}.stdout.txt"
+    stderr_path = output_dir / f"{name}.stderr.txt"
+    error_message = ""
+    result: Optional[subprocess.CompletedProcess[str]] = None
+    try:
+        result = subprocess.run(
+            argv,
+            input=stdin,
+            cwd=str(cwd),
+            text=True,
+            capture_output=True,
+            timeout=timeout_seconds,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as error:
+        error_message = f"discovery command timed out after {timeout_seconds}s"
+        write_text(stdout_path, error.stdout or "")
+        write_text(stderr_path, error.stderr or "")
+    except OSError as error:
+        error_message = f"failed to run discovery command: {error}"
+
+    finished_at = dt.datetime.now(dt.timezone.utc)
+    stdout = result.stdout if result else read_text_if_exists(stdout_path)
+    stderr = result.stderr if result else read_text_if_exists(stderr_path)
+    write_text(stdout_path, stdout)
+    write_text(stderr_path, stderr)
+    return {
+        "name": name,
+        "argv": redact_discovery_prompt(argv),
+        "stdin_prompt": stdin is not None,
+        "cwd": str(cwd),
+        "stdout_file": str(stdout_path),
+        "stderr_file": str(stderr_path),
+        "exit_code": result.returncode if result else None,
+        "error": error_message,
+        "started_at": started_at.isoformat(),
+        "finished_at": finished_at.isoformat(),
+        "duration_seconds": round(time.monotonic() - started_monotonic, 3),
+        "stdout_sha256": hashlib.sha256(stdout.encode("utf-8")).hexdigest(),
+    }
+
+
+def redact_discovery_prompt(argv: List[str]) -> List[str]:
+    redacted = list(argv)
+    for index, value in enumerate(redacted[:-1]):
+        if value == "--prompt":
+            redacted[index + 1] = "{prompt}"
+    return redacted
 
 
 def resolve_external_argv(argv: List[str]) -> List[str]:
@@ -1307,6 +1819,8 @@ def external_run_metadata(
     duration_seconds: float,
     exit_code: Optional[int],
     error_message: str,
+    prompt_transport: str,
+    cursor_trust: bool,
 ) -> Dict[str, Any]:
     model_slot = seat_model_slot(config, turn["seat"])
     return {
@@ -1322,6 +1836,8 @@ def external_run_metadata(
         "timeout_seconds": timeout_seconds,
         "argv": invocation["argv_for_audit"],
         "stdin_prompt": invocation["stdin_prompt"],
+        "prompt_transport": invocation.get("prompt_transport", prompt_transport),
+        "cursor_trust": invocation.get("cursor_trust", cursor_trust),
         "preflight": preflight,
         "prompt_file": str(prompt_path),
         "prompt_sha256": hashlib.sha256(prompt_text.encode("utf-8")).hexdigest(),
@@ -1410,6 +1926,14 @@ def optional_string(value: Any, field_name: str) -> str:
     if not isinstance(value, str):
         raise CouncilError(f"{field_name} must be a string")
     return value.strip()
+
+
+def optional_bool(value: Any, field_name: str) -> Optional[bool]:
+    if value is None:
+        return None
+    if not isinstance(value, bool):
+        raise CouncilError(f"{field_name} must be a boolean")
+    return value
 
 
 def required_int(value: Any, field_name: str, *, minimum: int, maximum: Optional[int] = None) -> int:
