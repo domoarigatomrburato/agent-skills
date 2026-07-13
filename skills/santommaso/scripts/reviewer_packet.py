@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Draft a compact reviewer packet for a Santommaso simplify pass."""
+"""Draft a compact reviewer packet for a Santommaso adversarial pass."""
 
 from __future__ import annotations
 
@@ -7,10 +7,16 @@ import argparse
 import os
 import shlex
 import subprocess
+import sys
 from pathlib import Path
+from typing import Optional
 
 
-def run_git(repo: Path | None, args: list[str]) -> tuple[int, str, str]:
+class GitCommandError(RuntimeError):
+    """Raised when packet generation cannot obtain trustworthy Git data."""
+
+
+def run_git(repo: Optional[Path], args: list[str]) -> tuple[int, str, str]:
     try:
         result = subprocess.run(
             ["git", *args],
@@ -18,17 +24,22 @@ def run_git(repo: Path | None, args: list[str]) -> tuple[int, str, str]:
             check=False,
             capture_output=True,
             text=True,
+            env={**os.environ, "LC_ALL": "C", "LANG": "C"},
         )
     except FileNotFoundError:
         return 127, "", "git executable not found"
     return result.returncode, result.stdout.rstrip(), result.stderr.rstrip()
 
 
-def find_repo(cwd: Path) -> Path | None:
-    code, stdout, _ = run_git(cwd, ["rev-parse", "--show-toplevel"])
+def find_repo(cwd: Path) -> Optional[Path]:
+    args = ["rev-parse", "--show-toplevel"]
+    code, stdout, stderr = run_git(cwd, args)
     if code == 0 and stdout:
         return Path(stdout)
-    return None
+    if "not a git repository" in stderr.lower():
+        return None
+    detail = stderr or stdout or "unknown error"
+    raise GitCommandError(f"git {shell_join(args)} failed: {detail}")
 
 
 def path_args(scope: list[str]) -> list[str]:
@@ -36,6 +47,8 @@ def path_args(scope: list[str]) -> list[str]:
 
 
 def shell_join(args: list[str]) -> str:
+    if os.name == "nt":
+        return subprocess.list2cmdline(args)
     return " ".join(shlex.quote(arg) for arg in args)
 
 
@@ -44,7 +57,33 @@ def git_output(repo: Path, args: list[str]) -> str:
     if code == 0:
         return stdout or "(none)"
     detail = stderr or stdout or "unknown error"
-    return f"[command failed: git {shell_join(args)}]\n{detail}"
+    raise GitCommandError(f"git {shell_join(args)} failed: {detail}")
+
+
+def resolve_base(repo: Path, requested_base: Optional[str]) -> str:
+    if not requested_base:
+        raise ValueError(
+            "--base is required inside a Git repository; choose HEAD for "
+            "uncommitted work or the actual branch/release base for committed work"
+        )
+    code, stdout, stderr = run_git(
+        repo,
+        ["rev-parse", "--verify", "--end-of-options", f"{requested_base}^{{commit}}"],
+    )
+    if code != 0 or not stdout:
+        detail = stderr or stdout or "unknown revision"
+        raise ValueError(f"invalid --base {requested_base!r}: {detail}")
+    return stdout
+
+
+def desired_output_lines() -> list[str]:
+    return [
+        "- Report correctness and evidence findings by severity, with concrete evidence, or explicitly state that none were found.",
+        "- Return exactly one of: Applied safe cleanup, No safe cleanup, or Report-only opportunities.",
+        "- Under Review-only authority, make no edits and return Report-only opportunities when cleanup exists.",
+        "- If applying changes, list changed files, why behavior is preserved, and validation run.",
+        "- If skipping opportunities, explain the behavior risk or missing coverage.",
+    ]
 
 
 def changed_files_from_status(status: str) -> list[str]:
@@ -111,18 +150,24 @@ def build_packet(args: argparse.Namespace) -> str:
         ]
         return "\n".join(
             [
-                "# Santommaso Reviewer Packet",
+                "# Santommaso Adversarial Reviewer Packet",
                 "",
                 f"Repository: `{cwd}`",
                 "",
                 "Scope:",
                 *scope_lines,
                 "",
+                "Authority:",
+                "- TODO: choose Review-only, Implementation-authorized, or Cleanup-authorized.",
+                "",
+                "Primary sources:",
+                "- TODO: identify the original request/specification and governing docs.",
+                "",
                 "Changed files:",
                 "- TODO: this directory is not inside a git repository.",
                 "",
-                "Behavior that must be preserved:",
-                "- TODO",
+                "Behavior contract:",
+                "- TODO: state requested behavior and invariants outside the change.",
                 "",
                 "Local constraints and validation expectations:",
                 "- TODO",
@@ -137,16 +182,17 @@ def build_packet(args: argparse.Namespace) -> str:
                 "- TODO",
                 "",
                 "Desired reviewer output:",
-                "- Return exactly one of: Applied safe cleanup, No safe cleanup, or Report-only opportunities.",
+                *desired_output_lines(),
             ]
         )
 
     scope = args.scope
     scoped = path_args(scope)
-    status_args = ["status", "--short", *scoped]
-    names_args = ["diff", "--name-only", args.base, *scoped]
-    stat_args = ["diff", "--stat", args.base, *scoped]
-    diff_args = ["diff", f"--unified={args.unified}", args.base, *scoped]
+    base = resolve_base(repo, args.base)
+    status_args = ["status", "--short", "--untracked-files=all", *scoped]
+    names_args = ["diff", "--name-only", base, *scoped]
+    stat_args = ["diff", "--stat", base, *scoped]
+    diff_args = ["diff", f"--unified={args.unified}", base, *scoped]
 
     status = git_output(repo, status_args)
     names = git_output(repo, names_args)
@@ -172,18 +218,24 @@ def build_packet(args: argparse.Namespace) -> str:
     )
 
     output = [
-        "# Santommaso Reviewer Packet",
+        "# Santommaso Adversarial Reviewer Packet",
         "",
         f"Repository: `{repo}`",
         "",
         "Scope:",
         *scope_lines,
         "",
+        "Authority:",
+        "- TODO: choose Review-only, Implementation-authorized, or Cleanup-authorized.",
+        "",
+        "Primary sources:",
+        "- TODO: identify the original request/specification and governing docs.",
+        "",
         "Changed files:",
         *changed_lines,
         "",
-        "Behavior that must be preserved:",
-        "- TODO: list public behavior, APIs, side effects, ordering, persistence, defaults, and error semantics.",
+        "Behavior contract:",
+        "- TODO: state requested behavior plus public APIs, side effects, ordering, persistence, defaults, and error semantics that must remain unchanged.",
         "",
         "Local constraints and validation expectations:",
         "- TODO: list relevant AGENTS.md, contribution docs, nearby package docs, and required checks.",
@@ -204,9 +256,7 @@ def build_packet(args: argparse.Namespace) -> str:
         "- TODO",
         "",
         "Desired reviewer output:",
-        "- Return exactly one of: Applied safe cleanup, No safe cleanup, or Report-only opportunities.",
-        "- If applying changes, list changed files, why behavior is preserved, and validation run.",
-        "- If skipping opportunities, explain the behavior risk or missing coverage.",
+        *desired_output_lines(),
     ]
 
     if args.include_diff:
@@ -228,8 +278,10 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--base",
-        default="HEAD",
-        help="Git revision to diff against. Defaults to HEAD.",
+        help=(
+            "Explicit Git revision to diff against. Required inside a Git repository; "
+            "use HEAD only for uncommitted work."
+        ),
     )
     parser.add_argument(
         "--scope",
@@ -269,7 +321,11 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
-    print(build_packet(parse_args()))
+    try:
+        print(build_packet(parse_args()))
+    except (GitCommandError, ValueError) as error:
+        print(f"error: {error}", file=sys.stderr)
+        raise SystemExit(1) from error
 
 
 if __name__ == "__main__":

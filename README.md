@@ -15,9 +15,9 @@ CLI views can group the installed skills under `DomoArigatoMrBurato Skills`.
 - `simplify` - Simplify existing code while preserving exact behavior, using a
   fresh independent agent pass when supported, with a bias toward removing
   leftover shims, duplicate sources of truth, and unnecessary wrappers.
-- `santommaso` - Prove behavior with vertical-slice TDD, or characterize
-  existing behavior for cleanup work, then require a fresh independent simplify
-  pass when supported.
+- `santommaso` - Deliberately prove behavior with vertical-slice TDD, or
+  characterize existing behavior, then require a fresh adversarial review that
+  challenges correctness before simplifying.
 
 ## Install
 
