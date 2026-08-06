@@ -11,8 +11,9 @@ persistence formats, and user-visible output exactly.
 
 ## Scope
 
-- Use the area named by the user. Otherwise use the current staged and unstaged
-  diff, including directly affected callers and callees.
+- Use the area named by the user. Otherwise use all current working-tree
+  changes—staged, unstaged, and untracked—including directly affected callers
+  and callees.
 - Give all reviewers the same complete scope and relevant diff.
 - If that scope cannot be inspected exhaustively in one pass, ask the user to
   narrow it rather than sampling it.
@@ -41,7 +42,9 @@ applied in its required form and stop.
 Assign one lens to each reviewer. Each reviewer must inspect every changed area
 in scope and return only high-confidence findings with the affected location,
 the concrete issue, the proposed improvement, and why behavior remains
-identical. A clean report is valid.
+identical. End with a compact coverage note naming every inspected area and any
+area that could not be inspected fully. A clean report is valid; incomplete
+coverage is not.
 
 ### 1. Reuse and reduction
 
@@ -94,7 +97,8 @@ Treat semantic risk as a veto, not a tradeoff.
 ## Workflow
 
 1. Inspect repository status and establish the complete scope and diff. Record
-   the observable behavior that must remain unchanged.
+   the starting file inventory and staging state, plus the observable behavior
+   that must remain unchanged.
 2. Dispatch all three reviewers in one parallel batch with the same scope,
    diff, behavior invariant, and their assigned lens. The batch is complete
    when all three reports account for every changed area.
@@ -104,8 +108,10 @@ Treat semantic risk as a veto, not a tradeoff.
 4. As the sole editor, apply the remaining improvements in coherent edits.
    Favor deletion and directness over new layers. Report broader or
    behavior-sensitive opportunities instead of implementing them.
-5. Review the resulting full diff once as a whole. Check semantic equivalence
-   and sweep adjacent code for leftovers introduced or exposed by the edits.
+5. Review the resulting full diff once as a whole. Check semantic equivalence,
+   sweep adjacent code for leftovers introduced or exposed by the edits, and
+   compare against the starting inventory. Confirm that the polish changed only
+   intentional files and preserved the original staging state.
 6. Run one final verification stage after all editing is complete: use the
    smallest relevant existing tests, then the repository's applicable static,
    lint, type, or build checks. If it fails because of the polish edits, fix
