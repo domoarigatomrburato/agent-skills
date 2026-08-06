@@ -1,9 +1,8 @@
 {
   "name": "DomoArigatoMrBurato-skills",
   "skills": [
-    "./skills/agent-council",
     "./skills/inquisition",
-    "./skills/santommaso",
-    "./skills/simplify"
+    "./skills/polish",
+    "./skills/santommaso"
   ]
 }

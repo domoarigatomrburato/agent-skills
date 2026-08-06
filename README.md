@@ -7,14 +7,12 @@ CLI views can group the installed skills under `DomoArigatoMrBurato Skills`.
 
 ## Skills
 
-- `agent-council` - Chair a harness-agnostic, read-only council of subagents
-  with preflight, profiles, durable transcript, and a traceable `final.md`.
 - `inquisition` - Run an isolated three-pass codebase audit (architecture,
   compliance, judge synthesis) and deliver a severity-ranked remediation
   report with cross-referenced findings.
-- `simplify` - Simplify existing code while preserving exact behavior, using a
-  fresh independent agent pass when supported, with a bias toward removing
-  leftover shims, duplicate sources of truth, and unnecessary wrappers.
+- `polish` - Polish changed code without altering behavior: three parallel,
+  read-only reviewers cover reuse and reduction, clarity and design, and
+  correctness and efficiency; one editor applies findings and verifies once.
 - `santommaso` - Deliberately prove behavior with vertical-slice TDD, or
   characterize existing behavior, then require a fresh adversarial review that
   challenges correctness before simplifying.
@@ -27,22 +25,16 @@ Install all skills for Universal + Claude Code:
 npx skills add domoarigatomrburato/agent-skills -g --skill '*' --agent universal claude-code -y
 ```
 
-Install only `agent-council` for Universal + Claude Code:
-
-```bash
-npx skills add domoarigatomrburato/agent-skills -g --skill agent-council --agent universal claude-code -y
-```
-
 Install only `inquisition`:
 
 ```bash
 npx skills add domoarigatomrburato/agent-skills -g --skill inquisition --agent universal claude-code -y
 ```
 
-Install only `simplify`:
+Install only `polish`:
 
 ```bash
-npx skills add domoarigatomrburato/agent-skills -g --skill simplify --agent universal claude-code -y
+npx skills add domoarigatomrburato/agent-skills -g --skill polish --agent universal claude-code -y
 ```
 
 Install only `santommaso`:
@@ -54,7 +46,7 @@ npx skills add domoarigatomrburato/agent-skills -g --skill santommaso --agent un
 Install from a local checkout while developing:
 
 ```bash
-npx skills add . -g --skill agent-council --agent universal claude-code --copy -y
+npx skills add . -g --skill polish --agent universal claude-code --copy -y
 ```
 
 List skills without installing:
@@ -66,5 +58,5 @@ npx skills add . --list
 Remove a globally installed skill:
 
 ```bash
-npx skills remove -g --skill agent-council -y
+npx skills remove -g --skill polish -y
 ```
