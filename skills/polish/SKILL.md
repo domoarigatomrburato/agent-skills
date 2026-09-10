@@ -1,6 +1,7 @@
 ---
 name: polish
-description: Polish changed code through parallel reviews for reuse, clarity, correctness, and efficiency, then apply only behavior-identical improvements and run one final verification. Use when the user asks to polish, simplify, de-cruft, refine, clean up, or perform a final quality pass on existing or recently changed code.
+description: Polish changed code through three independent reviews and behavior-preserving edits. Use only when the user explicitly requests the Polish skill.
+disable-model-invocation: true
 ---
 
 # Polish

@@ -1,7 +1,8 @@
 {
   "name": "DomoArigatoMrBurato-skills",
   "skills": [
-    "./skills/inquisition",
+    "./skills/grilling",
+    "./skills/domain-modeling",
     "./skills/polish",
     "./skills/santommaso"
   ]

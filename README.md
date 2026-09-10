@@ -1,62 +1,60 @@
 # Agent Skills
 
-Personal agent skills.
+Four personal workflows, invoked explicitly. Their instructions are maintained
+here; no other skill collection is required.
 
-This repo declares a `.claude-plugin/plugin.json` manifest so compatible Skills
-CLI views can group the installed skills under `DomoArigatoMrBurato Skills`.
+| Skill | Purpose |
+|---|---|
+| `grilling` | Challenge a plan through focused, consequential questions. |
+| `domain-modeling` | Clarify domain concepts and record concise, durable decisions. |
+| `polish` | Apply behavior-preserving improvements after three independent reviews. |
+| `santommaso` | Make test-first changes or assess existing code, with a fresh adversarial review. |
 
-## Skills
+Use `$skill-name` in Codex or `/skill-name` in Cursor and Claude Code. Codex
+invocation policy and Cursor/Claude frontmatter disable implicit activation.
+Repository rules continue to govern ordinary testing, documentation, and
+validation without requiring one of these workflows. Reading a skill for review does not invoke it.
 
-- `inquisition` - Run an isolated three-pass codebase audit (architecture,
-  compliance, judge synthesis) and deliver a severity-ranked remediation
-  report with cross-referenced findings.
-- `polish` - Polish changed code without altering behavior: three parallel,
-  read-only reviewers cover reuse and reduction, clarity and design, and
-  correctness and efficiency; one editor applies findings and verifies once.
-- `santommaso` - Deliberately prove behavior with vertical-slice TDD, or
-  characterize existing behavior, then require a fresh adversarial review that
-  challenges correctness before simplifying.
+Polish and Santommaso retain their deliberate review overhead. Use them when you
+want that workflow; ordinary edits do not require either. Spec writing, issue
+creation, commits, and pushes follow the user's request, not a skill pipeline.
 
 ## Install
 
-Install all skills for Universal + Claude Code:
+Install the working copy while developing:
 
 ```bash
-npx skills add domoarigatomrburato/agent-skills -g --skill '*' --agent universal claude-code -y
+npx skills@latest add . -g --skill grilling domain-modeling polish santommaso --agent universal claude-code -y
 ```
 
-Install only `inquisition`:
+The CLI installs from the local checkout into the shared global skills directory
+for Cursor and Codex, and links Claude Code to it. This covers local use;
+remote agents need their own installation. Run the command again after editing
+the source. Local-source installations do not need upstream updates from another
+collection.
+
+When replacing a remotely installed version with a local checkout, remove the
+old named installations first, then run the local install command. Skills CLI
+1.5.25 can retain the previous upstream tracking records when a local install
+overwrites them; removing first prevents later updates from restoring the old
+upstream version.
+
+After changes have been published to this repository, install the published version:
 
 ```bash
-npx skills add domoarigatomrburato/agent-skills -g --skill inquisition --agent universal claude-code -y
+npx skills@latest add domoarigatomrburato/agent-skills -g --skill grilling domain-modeling polish santommaso --agent universal claude-code -y
 ```
 
-Install only `polish`:
+Inspect or remove named installations with `npx skills@latest list -g` and
+`npx skills@latest remove <skill-name> -g -y`.
 
-```bash
-npx skills add domoarigatomrburato/agent-skills -g --skill polish --agent universal claude-code -y
-```
+## Attribution
 
-Install only `santommaso`:
+Grilling and Domain Modeling are locally maintained adaptations of Matt Pocock's
+MIT-licensed [skills](https://github.com/mattpocock/skills), based on the installed
+versions updated on 2026-08-21. Their folders preserve the upstream license.
+They retain focused questioning, domain vocabulary, and ADR practices while
+removing cross-skill dependencies and narrowing activation and scope.
 
-```bash
-npx skills add domoarigatomrburato/agent-skills -g --skill santommaso --agent universal claude-code -y
-```
-
-Install from a local checkout while developing:
-
-```bash
-npx skills add . -g --skill polish --agent universal claude-code --copy -y
-```
-
-List skills without installing:
-
-```bash
-npx skills add . --list
-```
-
-Remove a globally installed skill:
-
-```bash
-npx skills remove -g --skill polish -y
-```
+The `.claude-plugin/plugin.json` manifest groups the skills under
+`DomoArigatoMrBurato-skills` in compatible hosts.

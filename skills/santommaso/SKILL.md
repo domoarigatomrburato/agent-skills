@@ -1,6 +1,7 @@
 ---
 name: santommaso
 description: Santommaso deliberate red-green plus fresh adversarial review. Use only when the user explicitly asks for Santommaso or their usual Santommaso mode.
+disable-model-invocation: true
 ---
 
 # Santommaso
