@@ -1,52 +1,64 @@
 # Agent Skills
 
-Four personal workflows, invoked explicitly. Their instructions are maintained
+Three personal workflows, invoked explicitly. Their instructions are maintained
 here; no other skill collection is required.
 
 | Skill | Purpose |
 |---|---|
 | `grilling` | Challenge a plan through focused, consequential questions. |
 | `domain-modeling` | Clarify domain concepts and record concise, durable decisions. |
-| `polish` | Apply behavior-preserving improvements after three independent reviews. |
-| `santommaso` | Make test-first changes or assess existing code, with a fresh adversarial review. |
+| `polish` | Independently review correctness, test evidence, and design; fix supported issues. |
+
+## Development workflow
+
+Use Grilling when important choices are unresolved and Domain Modeling when
+concepts or durable decisions need clarification. Implement normally, following
+the repository's testing and validation rules. At a meaningful completion point,
+request Polish on the changes:
+
+> Implement feature X, then use Polish on the complete changes.
+
+Polish uses three fresh reviewers and one coordinating editor. It handles commits,
+revision ranges, branch changes, uncommitted work, or an explicitly combined scope.
+A bare invocation selects staged, unstaged, and untracked changes. Ask for
+review-only to receive findings without edits. Fixes stay within the requested
+behavior; commits, pushes, and publication require the user's authorization.
+
+There is no separate implementation skill. Polish requires a failing regression
+test for a testable bug it fixes, without imposing TDD on every feature or
+refactor. It reports incomplete coverage or unavailable independent review.
 
 Use `$skill-name` in Codex or `/skill-name` in Cursor and Claude Code. Codex
 invocation policy and Cursor/Claude frontmatter disable implicit activation.
-Repository rules continue to govern ordinary testing, documentation, and
-validation without requiring one of these workflows. Reading a skill for review does not invoke it.
-
-Polish and Santommaso retain their deliberate review overhead. Use them when you
-want that workflow; ordinary edits do not require either. Spec writing, issue
-creation, commits, and pushes follow the user's request, not a skill pipeline.
+Repository rules govern ordinary development even when no skill is invoked.
+Reading a skill for review does not invoke it.
 
 ## Install
 
-Install the working copy while developing:
+Install from the published GitHub repository for local Cursor, Codex, and Claude:
 
 ```bash
-npx skills@latest add . -g --skill grilling domain-modeling polish santommaso --agent universal claude-code -y
+npx skills@latest add domoarigatomrburato/agent-skills -g --skill grilling domain-modeling polish --agent universal claude-code -y
 ```
 
-The CLI installs from the local checkout into the shared global skills directory
-for Cursor and Codex, and links Claude Code to it. This covers local use;
-remote agents need their own installation. Run the command again after editing
-the source. Local-source installations do not need upstream updates from another
-collection.
+Universal installs to the shared global directory used by Cursor and Codex;
+Claude Code receives links to the same files. Remote agents need their own
+installation. After publishing skill changes, rerun the command to refresh them.
+Removing a skill from this repo does not uninstall an existing global copy;
+remove retired skills explicitly with the CLI.
 
-When replacing a remotely installed version with a local checkout, remove the
-old named installations first, then run the local install command. Skills CLI
-1.5.25 can retain the previous upstream tracking records when a local install
-overwrites them; removing first prevents later updates from restoring the old
-upstream version.
-
-After changes have been published to this repository, install the published version:
-
-```bash
-npx skills@latest add domoarigatomrburato/agent-skills -g --skill grilling domain-modeling polish santommaso --agent universal claude-code -y
-```
-
-Inspect or remove named installations with `npx skills@latest list -g` and
+Inspect installations with `npx skills@latest list -g`; remove a named skill with
 `npx skills@latest remove <skill-name> -g -y`.
+
+For development, inspect a working copy without changing global installs:
+
+```bash
+npx skills@latest add . --list
+```
+
+Normal installations should track GitHub. If intentionally switching an existing
+remote installation to a local source, remove the old named installation first:
+Skills CLI 1.5.25 can retain its upstream tracking record during a local overwrite.
 
 ## Attribution
 

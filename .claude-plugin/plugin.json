@@ -3,7 +3,6 @@
   "skills": [
     "./skills/grilling",
     "./skills/domain-modeling",
-    "./skills/polish",
-    "./skills/santommaso"
+    "./skills/polish"
   ]
 }

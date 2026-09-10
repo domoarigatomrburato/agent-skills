@@ -1,6 +1,6 @@
 interface:
   display_name: "Polish"
-  short_description: "Polish changed code without changing behavior"
-  default_prompt: "Use $polish to review and refine my current code changes without changing behavior."
+  short_description: "Three fresh reviews and verified fixes for changes"
+  default_prompt: "Use $polish to review my current changes for correctness, test evidence, and design, then fix supported issues."
 policy:
   allow_implicit_invocation: false

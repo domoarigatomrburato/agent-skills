@@ -1,5 +1,0 @@
-interface:
-  display_name: "Santommaso"
-  short_description: "Test-first changes with adversarial review"
-policy:
-  allow_implicit_invocation: false
