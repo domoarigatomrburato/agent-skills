@@ -1,10 +1,10 @@
 ---
-name: polish
-description: Review a set of changes with three fresh reviewers, then fix supported correctness, test-evidence, and design issues. Use only when the user explicitly requests the Polish skill.
+name: inquisition
+description: Review a set of changes with three fresh reviewers, then fix supported correctness, test-evidence, and design issues. Use only when the user explicitly requests the Inquisition skill.
 disable-model-invocation: true
 ---
 
-# Polish
+# Inquisition
 
 Independently challenge a completed set of changes, then address supported
 findings. Review requirements and correctness, test evidence, and design and
@@ -35,7 +35,7 @@ while reviewers work, refresh the affected review before applying findings.
 Divide large scopes into bounded batches with the same three lenses rather than
 silently sampling or claiming complete coverage.
 
-An explicit Polish request authorizes localized fixes to the requested behavior
+An explicit Inquisition request authorizes localized fixes to the requested behavior
 and behavior-preserving cleanup, unless the user requests review-only. Honor
 narrower constraints. If requirements are unavailable, say so, use established
 contracts, and ask only about uncertainty that materially affects a fix. A
@@ -54,7 +54,7 @@ preferred conclusions or other reviewers' findings.
 
 Run reviewers in parallel when supported. If concurrency is limited, run them
 sequentially in separate fresh contexts. If independent contexts are unavailable,
-report that limitation and do not claim a completed Polish review.
+report that limitation and do not claim a completed Inquisition review.
 
 Reviewers read source and tests but do not edit, run formatters or shared test
 suites, or spawn more reviewers. They request targeted execution evidence from

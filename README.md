@@ -7,24 +7,24 @@ here; no other skill collection is required.
 |---|---|
 | `grilling` | Challenge a plan through focused, consequential questions. |
 | `domain-modeling` | Clarify domain concepts and record concise, durable decisions. |
-| `polish` | Independently review correctness, test evidence, and design; fix supported issues. |
+| `inquisition` | Independently review correctness, test evidence, and design; fix supported issues. |
 
 ## Development workflow
 
 Use Grilling when important choices are unresolved and Domain Modeling when
 concepts or durable decisions need clarification. Implement normally, following
 the repository's testing and validation rules. At a meaningful completion point,
-request Polish on the changes:
+request Inquisition on the changes:
 
-> Implement feature X, then use Polish on the complete changes.
+> Implement feature X, then use Inquisition on the complete changes.
 
-Polish uses three fresh reviewers and one coordinating editor. It handles commits,
+Inquisition uses three fresh reviewers and one coordinating editor. It handles commits,
 revision ranges, branch changes, uncommitted work, or an explicitly combined scope.
 A bare invocation selects staged, unstaged, and untracked changes. Ask for
 review-only to receive findings without edits. Fixes stay within the requested
 behavior; commits, pushes, and publication require the user's authorization.
 
-There is no separate implementation skill. Polish requires a failing regression
+There is no separate implementation skill. Inquisition requires a failing regression
 test for a testable bug it fixes, without imposing TDD on every feature or
 refactor. It reports incomplete coverage or unavailable independent review.
 
@@ -38,7 +38,7 @@ Reading a skill for review does not invoke it.
 Install from the published GitHub repository for local Cursor, Codex, and Claude:
 
 ```bash
-npx skills@latest add domoarigatomrburato/agent-skills -g --skill grilling domain-modeling polish --agent universal claude-code -y
+npx skills@latest add domoarigatomrburato/agent-skills -g --skill grilling domain-modeling inquisition --agent universal claude-code -y
 ```
 
 Universal installs to the shared global directory used by Cursor and Codex;
