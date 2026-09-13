@@ -18,8 +18,11 @@ request Inquisition on the changes:
 
 > Implement feature X, then use Inquisition on the complete changes.
 
-Inquisition uses three fresh reviewers and one coordinating editor. It handles commits,
-revision ranges, branch changes, uncommitted work, or an explicitly combined scope.
+Inquisition uses two fresh reviewers and one coordinating editor: one reviewer
+covers correctness and test evidence, the other design and efficiency. See the
+[skill's model and reasoning defaults](skills/inquisition/SKILL.md#model-and-reasoning-defaults)
+for model selection across hosts. It handles commits, revision ranges, branch
+changes, uncommitted work, or an explicitly combined scope.
 A bare invocation selects staged, unstaged, and untracked changes. Ask for
 review-only to receive findings without edits. Fixes stay within the requested
 behavior; commits, pushes, and publication require the user's authorization.
