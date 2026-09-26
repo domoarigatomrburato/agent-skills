@@ -10,6 +10,7 @@ icon; the cloud refuses a job above the tier limit (10,000 community,
 
     compute_units.py --version krea_2 --size 2048x1344 --steps 8 --cfg 1.0
     compute_units.py --version ideogram_4 --size 2048x1344 --steps 20 --cfg 7
+    compute_units.py --version qwen_image --size 2048x1344 --steps 30 --cfg 4
 """
 from __future__ import annotations
 
@@ -32,6 +33,10 @@ def dense(rows: int, inp: int, out: int) -> int:
 
 def sdpa(batch: int, heads: int, head_dim: int, seq_a: int, seq_b: int) -> int:
     return batch * heads * (2 * head_dim + 5) * seq_a * seq_b
+
+
+def conv(batch: int, out_h: int, out_w: int, out_ch: int, kh: int, kw: int, in_ch: int, groups: int = 1) -> int:
+    return batch * out_h * out_w * out_ch * (kh * kw * (in_ch // groups))
 
 
 # --- Krea 2 -------------------------------------------------------------------------
@@ -117,6 +122,51 @@ def ideogram4_fixed(timesteps, batch, text_len, text_in=4096 * 13, channels=4608
     return total
 
 
+# --- Qwen Image (2512 and 1.0; not 2.1) -----------------------------------------------
+# Port of QwenImageInstructionCount / QwenImageFixedInstructionCount from the app's
+# ComputeUnits sources: 60 joint-attention layers of 3072 channels, 128-wide heads, the last
+# layer text-stream pre-only, 2x2 patchify on 16 latent channels, no reference images.
+
+def qwen_image_main(batch, height, width, text_len, channels=3072, layers=60, reference_len=0):
+    h, w = height // 2, width // 2
+    image_len = h * w
+    x_len = image_len + reference_len
+    total_len = x_len + text_len
+    heads, head_dim = channels // 128, 128
+    total = conv(batch, h, w, channels, 2, 2, 16)
+    for i in range(layers):
+        pre_only = i == layers - 1
+        rows_text = batch * text_len
+        rows_x_kv = batch * x_len
+        rows_x_out = batch * ((x_len - reference_len) if pre_only else x_len)
+        total += 3 * dense(rows_text, channels, channels)
+        total += 3 * dense(rows_x_kv, channels, channels)
+        total += sdpa(batch, heads, head_dim, total_len, total_len)
+        if not pre_only:
+            total += dense(rows_text, channels, channels)
+            total += dense(rows_text, channels, channels * 4)
+            total += dense(rows_text, channels * 4, channels)
+        total += dense(rows_x_out, channels, channels)
+        total += dense(rows_x_out, channels, channels * 4)
+        total += dense(rows_x_out, channels * 4, channels)
+    total += dense(batch * image_len, channels, 2 * 2 * 16)
+    return total
+
+
+def qwen_image_fixed(timesteps, batch, text_len, channels=3072, layers=60, reference_len=0, text_in=3584):
+    total = 0
+    if reference_len > 0:
+        total += 64 * channels * reference_len
+    total += dense(batch * text_len, text_in, channels)
+    if layers > 0:
+        total += dense(timesteps, 256, channels) + dense(timesteps, channels, channels)
+        for i in range(layers):
+            pre_only = i == layers - 1
+            total += ((2 if pre_only else 6) + 6) * dense(timesteps, channels, channels)
+        total += 2 * dense(timesteps, channels, channels)
+    return total
+
+
 # --- estimate -----------------------------------------------------------------------
 
 def estimate(version: str, width: int, height: int, steps: int, cfg: float, batch_size: int = 1,
@@ -133,6 +183,9 @@ def estimate(version: str, width: int, height: int, steps: int, cfg: float, batc
     elif version == "ideogram_4":
         main = ideogram4_main(1, lh, lw, text_len) * batch
         fixed = ideogram4_fixed(1, 1, text_len) * batch
+    elif version == "qwen_image":
+        main = qwen_image_main(1, lh, lw, text_len) * batch
+        fixed = qwen_image_fixed(1, 1, text_len) * batch
     else:
         return None
     units = (main * CALIBRATION * steps * max(strength, 0.05)) + fixed * CALIBRATION
@@ -147,7 +200,7 @@ def boosts_needed(units: int, threshold: int) -> int:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--version", required=True, help="model version string: krea_2, ideogram_4")
+    ap.add_argument("--version", required=True, help="model version string: krea_2, ideogram_4, qwen_image")
     ap.add_argument("--size", required=True, help="WxH")
     ap.add_argument("--steps", type=int, required=True)
     ap.add_argument("--cfg", type=float, default=1.0)
