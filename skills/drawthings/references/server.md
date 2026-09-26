@@ -80,7 +80,7 @@ against about 39,000 shown in the app).
 | the app itself, same job as the 198 s row | 1920x1280 | 32 | 185 s | 21 s (text encoding 12 s) |
 
 No throttling across some twenty jobs in one morning. Random aborts before the first step do
-happen and are the reason for the retries.
+happen and are the reason for the retries. Mid-sampling drops (`No images received from server`) also happen; four in a row on one model turned out to be an incomplete spec (see SKILL.md, section 5), not the cloud.
 
 ## Deriving a spec for a new cloud model
 
@@ -103,7 +103,7 @@ block gives the app's defaults. The text encoder and autoencoder still come from
 1. Find the file in the `ModelZoo.swift` hash table (`*_i8x.ckpt`, `*_q8p.ckpt`); the text encoder is usually the entry right after it.
 2. Take the `version` raw value from `Sampler.swift`'s `ModelVersion` enum.
 3. Pick the autoencoder by the model's latent channel count (`latentsMean` arrays in `ModelZoo.swift`, or the open-weights repository's VAE `z_channels`).
-4. Set `default_scale` 32, `modifier` "none", `prefix` "", `clip_encoder` to the file.
+4. Set `default_scale` 32, `modifier` "none", `prefix` "", `clip_encoder` to the file, unless the zoo entry says otherwise. Carry over every other field the zoo entry has (`objective`, `noise_discretization`, `hires_fix_scale`, the `mmdit` block with its activation scaling, `is_bf16`): the spec replaces the app's built-in entry, and a missing field breaks the job mid-sampling. The model's `metadata.json` in `drawthingsai/community-models` is the zoo entry in JSON with snake_case keys; `configs/<model>/metadata.json` beside it holds Draw Things' recommended settings for it.
 5. Test with a short plain prompt at 1024x704 and 8 steps; a coherent image proves the encoder and autoencoder pair, then test the real prompt format and the target size. Repeat any failure before changing the spec.
 
 ## drawthings-py notes

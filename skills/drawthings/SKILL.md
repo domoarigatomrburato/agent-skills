@@ -1,6 +1,6 @@
 ---
 name: drawthings
-description: Render prompts through the Draw Things app's API server (gRPC) from the terminal instead of pasting them into the app. Picks a model recipe (Krea 2 Turbo and Ideogram 4 through Draw Things+ cloud compute, or any model the app has locally), runs a seed set one job at a time, retries the cloud's random aborts, saves PNGs with the exact prompt, a run log and a contact sheet, and looks at the results. Use this skill whenever the user wants to generate, render, batch, retry, compare seeds or log image experiments with Draw Things, mentions its API server, gRPC, Bridge Mode or cloud compute, or asks to run a Krea or Ideogram prompt "in Draw Things", even if they only say "render it" or "try a few seeds".
+description: Render prompts through the Draw Things app's API server (gRPC) from the terminal instead of pasting them into the app. Picks a model recipe (Krea 2 Turbo and Ideogram 4 through Draw Things+ cloud compute, or any model the app has locally), runs a seed set one job at a time, survives the flaky cloud (retries, stall detection, resume) while staying easy to stop, saves PNGs with the exact prompt, a run log and a contact sheet, and looks at the results. Use this skill whenever the user wants to generate, render, batch, retry, compare seeds or log image experiments with Draw Things, mentions its API server, gRPC, Bridge Mode or cloud compute, or asks to run a Krea or Ideogram prompt "in Draw Things", even if they only say "render it" or "try a few seeds".
 ---
 
 # Draw Things API server
@@ -12,7 +12,7 @@ service through the maintained `drawthings-py` SDK (PyPI, GPL-3.0, used as a dep
 the one thing the SDK lacks: the model spec (`override.models`) that cloud-only models need
 because the app does not list them. Files, relative to this skill's folder:
 
-- `scripts/dt_render.py` — the renderer: recipe or custom spec, prompt file, seed set, retries, PNGs, `run.json`, `runs.jsonl` line per image, contact sheet.
+- `scripts/dt_render.py` — the renderer: recipe or custom spec, prompt file, seed set, retries and resume, PNGs, `run.json`, `runs.jsonl` line per image, contact sheet.
 - `scripts/setup.sh` — one-time virtualenv with the SDK (`~/.cache/drawthings-skill/venv`).
 - `scripts/compute_units.py` — the app's compute-unit formula, ported from `ComputeUnits.swift`; the renderer runs it before every job.
 - `scripts/png_config.py` — prints the settings and prompt stored in any Draw Things PNG (the app's exports or this renderer's) and the command that reproduces it.
@@ -46,15 +46,17 @@ to a file, then:
 
 ```bash
 python3 scripts/dt_render.py --recipe krea-2-turbo --prompt-file prompts/krea-2-turbo.txt \
-  --seeds 4 --out renders/observer/r12 --log projects/observer/runs.jsonl --note "haze as a surface"
+  --count 4 --out renders/observer/r12 --log projects/observer/runs.jsonl --note "haze as a surface"
 ```
 
-- `--seeds 4` draws four random seeds (printed and logged); `--seeds 12345,777` reuses known ones. Seeds run one after another because the server takes one job at a time.
+- `--count 4` draws four random seeds (printed and logged); `--seeds 12345,777` reuses known ones. `--seeds` always means literal seeds, so `--seeds 42` is the one seed 42. Seeds run one after another because the server takes one job at a time. A run refuses to start above `--max-images` (default 8); raise it on purpose for bigger rounds.
 - `--size WxH` overrides the recipe's default (multiples of 64, at most 2048 on a side; `size.py` in the krea-prompt skill gives the size for a ratio). `--steps`, `--cfg`, `--shift`, `--sampler` override the recipe; leave them alone while iterating on a prompt.
 - A `.json` prompt file is validated and minified before sending; a `.txt` file is sent as is. `--negative-file` adds a negative prompt where the model uses one (Turbo ignores it).
 - `--out` gets `<name>-s<seed>.png` (with Draw Things metadata inside the PNG), a copy of the exact prompt, `run.json` with everything, and `<name>-sheet.jpg` when at least two images succeeded. `--name` sets the base name (default: the prompt file's stem).
 - `--log` appends one JSON line per image: settings, seed, timing, prompt hash and file, status, your `--note`. Keep one `runs.jsonl` per project so a whole project's history is one file.
-- Expect 15 to 60 s before the first sampling step and 90 to 200 s per 2K image on the cloud (Ideogram at 32 steps is the slow end). A round of four seeds is six to twelve minutes; run it in the background and poll the output.
+- Expect 15 to 60 s before the first sampling step and 90 to 230 s per 2K image on the cloud (Ideogram and Qwen Image near 40,000 units are the slow end). A round of four seeds is six to fifteen minutes. **Never run a render as a blocking foreground command**, not even a one-image test: start it in the background so the conversation stays open, and tell the user it is running and how to stop it. Before starting, the script prints the plan (images, the most requests it may send, rough minutes) and how to stop it.
+- **Stopping a run**: Ctrl-C or `kill <pid>` end it at once; `touch <out>/STOP` ends it within seconds (`~/.cache/drawthings-skill/STOP` stops every run). Stop files older than the run are ignored, so a leftover never blocks the next one. Finished seeds are kept.
+- **Resume**: run the same command again with the same `--out` and it renders only the seeds that are missing (`--count` runs reuse the seeds drawn the first time). `run.json` is rewritten after every seed, so an interrupted run loses nothing. Another prompt or other settings in an `--out` that already holds renders is refused; use a new folder or `--overwrite`.
 
 Change one thing per round, say what in `--note`, and keep the note in the project's
 `notes.md` when the round taught something.
@@ -112,13 +114,15 @@ prompt placed, rendered text, the light, the style label. Then:
 
 ## 5. Errors and limits
 
-- **The cloud aborts jobs at random, mostly before the first sampling step**, with `INTERNAL: unknown error processing request` after 20 to 30 s. The script retries any failure that happens before sampling (three extra attempts, 20 s apart, `--retries`/`--retry-wait`). Never conclude a spec, size or prompt is wrong from one failure: repeat it first, bisect only after two failures in a row.
+- **The Draw Things+ cloud is generous but flaky.** It aborts jobs at random, mostly before the first sampling step (`INTERNAL: unknown error processing request` after 20 to 30 s), sometimes mid-sampling, and it stalls. The script treats every failure as transient: each attempt gets a fresh connection, a job that sends no progress for `--stall-timeout` (300 s) is cancelled, the retries back off from 20 s to 240 s (`--retries` 3, `--retry-wait`, `--retry-wait-max`), and seeds that still fail get a second pass at the end (`--passes` 2). A PNG only lands on disk after it has been checked (right size, not one flat colour).
+- **When failures are systematic the script stops by itself**: after `--max-failures-in-a-row` (5) failed attempts, or when the API server stays unreachable for `--server-wait` (60 s; the user may have quit the app on purpose). Exit code 6 means the run stopped; fix the cause and rerun the same command to resume. Never conclude a spec, size or prompt is wrong from one failure, but the same failure on every attempt is not the cloud.
+- **A cloud model that renders in the app but always fails through the API mid-sampling with `No images received from server` has an incomplete spec.** The spec sent through `override.models` replaces the app's built-in entry, so it must carry every field the model zoo entry has: for Qwen Image that is `objective` (`{"u": {"condition_scale": 1000}}`), `hires_fix_scale` and the `mmdit` block with its per-layer activation scaling. Copy these from the model's `metadata.json` in `drawthingsai/community-models` (the JSON form of the zoo entry, snake_case keys) rather than writing a bare spec.
 - The same error at the first step on every attempt, for sizes above 1024 px, means `default_scale` 16 in the spec; use 32.
 - With Bridge Mode on, every job goes to the cloud: local community checkpoints fail through it. Turn Bridge Mode off to render local models, on for the cloud recipes.
 - One job at a time. Do not run two `dt_render.py` at once against one server.
 - A cloud model that is `not local` with Bridge Mode off returns a download request instead of an image; the script reports it as an error.
 - **Ideogram 4 needs the `q8p` model file.** With `ideogram_4_i8x.ckpt` in the spec, guidance above 1 breaks down as the caption grows: at CFG 7 captions up to about 500 Qwen tokens render, 800 come out blown out, 1,000 and more are noise, while CFG 1 stays clean. With `ideogram_4_q8p.ckpt`, the file behind the app's "Ideogram 4 remote", a 1,309-token caption renders cleanly at CFG 7 with or without zero negative prompt, and the app's own image is reproduced pixel for pixel from its seed and settings. The recipe carries the q8p file; if a render ever shows that pattern again (short captions fine, long ones noise), check the model file before anything else.
-- `--timeout` (900 s per image) covers 48-step 2K jobs; raise it for video or larger batches.
+- `--timeout` (1200 s per attempt) covers 50-step 2K jobs; raise it for video or larger batches.
 - Local LoRAs (`--lora file.ckpt:0.8`) are passed through the configuration and work for local models; the cloud has no access to local LoRA files, so do not expect them on cloud recipes.
 
 ## 6. Reproducing an image

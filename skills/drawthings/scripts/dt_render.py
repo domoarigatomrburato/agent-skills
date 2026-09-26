@@ -8,7 +8,7 @@ to Draw Things+ cloud compute through Bridge Mode.
 Examples:
   dt_render.py --check
   dt_render.py --list-recipes
-  dt_render.py --recipe krea-2-turbo --prompt-file prompt.txt --seeds 4 --out renders/r1
+  dt_render.py --recipe krea-2-turbo --prompt-file prompt.txt --count 4 --out renders/r1
   dt_render.py --recipe ideogram-4 --prompt-file caption.json --size 2048x1344 --seeds 12345 --out renders/r2 --log runs.jsonl
   dt_render.py --spec my-model.json --prompt "a red apple" --out renders/r3
 """
@@ -48,6 +48,7 @@ import json  # noqa: E402
 import math  # noqa: E402
 import random  # noqa: E402
 import re  # noqa: E402
+import signal  # noqa: E402
 import time  # noqa: E402
 from datetime import datetime, timezone  # noqa: E402
 
@@ -68,7 +69,6 @@ SAMPLER_NAMES = [
     "DPMPPSDESubstep", "TCD", "EulerATrailing", "DPMPPSDETrailing", "DPMPP2MAYS", "EulerAAYS",
     "DPMPPSDEAYS", "DPMPP2MTrailing", "DDIMTrailing", "UniPCTrailing", "UniPCAYS", "TCDTrailing",
 ]
-RETRYABLE = ("unavailable", "deadline", "unknown error processing request", "cancelled", "reset", "timed out")
 
 
 # --- model spec override -------------------------------------------------------------
@@ -112,16 +112,14 @@ def parse_size(text: str) -> tuple[int, int]:
 
 
 def parse_seeds(text: str) -> list[int]:
-    text = text.strip()
-    if re.fullmatch(r"\d+", text) and "," not in text and int(text) <= 64:
-        return [random.randint(1, 2**32 - 2) for _ in range(int(text))]
+    """--seeds is always literal seeds (12345 or 12345,777); random seeds come from --count."""
     seeds = []
     for part in text.split(","):
         part = part.strip()
         if not part:
             continue
         if not re.fullmatch(r"\d+", part):
-            raise SystemExit(f"bad seed {part!r}; use a count (4) or a list (12345,777)")
+            raise SystemExit(f"bad seed {part!r}; --seeds takes seeds (12345,777), --count N draws random ones")
         seeds.append(int(part))
     return seeds
 
@@ -153,9 +151,75 @@ def sha256(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def is_retryable(message: str) -> bool:
-    low = message.lower()
-    return any(k in low for k in RETRYABLE)
+def backoff(attempt: int, base: float, cap: float) -> float:
+    """Seconds to wait after failed attempt number `attempt`: base, 2x, 4x ... up to cap, with jitter."""
+    return min(cap, base * 2 ** (attempt - 1)) * random.uniform(0.85, 1.15)
+
+
+async def server_reachable(host: str, port: int, timeout: float = 5.0) -> bool:
+    try:
+        _reader, writer = await asyncio.wait_for(asyncio.open_connection(host, port), timeout)
+        writer.close()
+        return True
+    except (OSError, asyncio.TimeoutError):
+        return False
+
+
+class StopRun(Exception):
+    """Ends the whole run: a stop file, the server gone, or failures that look systematic."""
+
+
+GLOBAL_STOP = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "drawthings-skill" / "STOP"
+RUN_STARTED = time.time()  # stop files older than this run are leftovers and ignored
+
+
+def check_stop(out_dir: Path) -> None:
+    for f in (out_dir / "STOP", GLOBAL_STOP):
+        try:
+            if f.stat().st_mtime >= RUN_STARTED - 1:
+                raise StopRun(f"stop file {f} found")
+        except FileNotFoundError:
+            pass
+
+
+async def nap(seconds: float, out_dir: Path) -> None:
+    """asyncio.sleep that notices a stop file within a second."""
+    end = time.monotonic() + seconds
+    while (left := end - time.monotonic()) > 0:
+        check_stop(out_dir)
+        await asyncio.sleep(min(1.0, left))
+    check_stop(out_dir)
+
+
+async def wait_for_server(host: str, port: int, max_wait: float, out_dir: Path) -> None:
+    """Wait briefly for the API server (a Bridge Mode hiccup, the app restarting); stop the run if it
+    stays away, since the likeliest reason is that the user quit Draw Things on purpose."""
+    if await server_reachable(host, port):
+        return
+    print(f"  API server {host}:{port} not reachable; waiting up to {max_wait:.0f}s")
+    deadline = time.monotonic() + max_wait
+    while time.monotonic() < deadline:
+        await nap(min(5.0, max(0.0, deadline - time.monotonic())), out_dir)
+        if await server_reachable(host, port):
+            print("  API server is back")
+            return
+    raise StopRun(f"API server {host}:{port} unreachable for {max_wait:.0f}s (Draw Things closed?)")
+
+
+def image_problem(path: Path, width: int, height: int) -> str | None:
+    """Why a returned PNG is unusable (wrong size, or one flat colour from a NaN decode), or None."""
+    from PIL import Image, ImageStat
+
+    try:
+        with Image.open(path) as im:
+            im.load()
+            if im.size != (width, height):
+                return f"image is {im.size[0]}x{im.size[1]}, asked for {width}x{height}"
+            if max(ImageStat.Stat(im.convert("L").resize((256, 256))).stddev) < 1.0:
+                return "image is a single flat colour (failed decode)"
+    except Exception as e:  # noqa: BLE001
+        return f"image unreadable: {type(e).__name__}: {e}"
+    return None
 
 
 # --- contact sheet ---------------------------------------------------------------------
@@ -193,20 +257,87 @@ def contact_sheet(entries: list[dict], out_path: Path, thumb: int) -> Path | Non
 
 # --- generation ------------------------------------------------------------------------
 
+# The Draw Things+ cloud behind Bridge Mode is generous but flaky: it aborts jobs before the
+# first step, drops them mid-sampling ("No images received from server"), and stalls. A failed
+# attempt is retried on a fresh connection with growing pauses, a stalled one is cancelled, and
+# seeds that still fail get one more pass at the end; finished seeds are never rendered twice
+# (resume, in main). The run stays easy to stop: Ctrl-C or kill end it at once, a STOP file ends
+# it within seconds, and it stops by itself when the server is gone (the user may have quit the
+# app on purpose) or when attempts keep failing in a row (a systematic problem, not the cloud).
+
+def report(entry: dict) -> None:
+    seed = entry["seed"]
+    if entry["status"] == "ok" and entry.get("resumed"):
+        print(f"  seed {seed}: already rendered, skipped -> {entry['file']}")
+    elif entry["status"] == "ok":
+        print(f"  seed {seed}: ok in {entry['seconds']:.0f}s (first step at {entry['first_step_seconds']}s, "
+              f"attempt {entry['attempts']}) -> {entry['file']}")
+    elif entry["status"] == "stopped":
+        print(f"  seed {seed}: stopped ({entry['error']})")
+    else:
+        print(f"  seed {seed}: gave up after {entry['attempts']} attempts: {entry['error']}")
+
+
 async def render_all(args, spec: dict, settings: dict, prompt: str, negative: str, seeds: list[int],
-                     out_dir: Path, name: str) -> list[dict]:
-    entries: list[dict] = []
+                     out_dir: Path, name: str, done: dict[int, dict], save, state: dict) -> list[dict]:
+    """Render every seed not in `done`; `save(entries)` runs after each seed so a crash loses nothing."""
+    entries: dict[int, dict] = {s: done[s] for s in seeds if s in done}
+    for e in entries.values():
+        report(e)
+
+    def ordered() -> list[dict]:
+        return [entries[s] for s in seeds if s in entries]
+
+    todo = [s for s in seeds if s not in entries]
+    try:
+        for pass_no in range(1, args.passes + 1):
+            if not todo:
+                break
+            if pass_no > 1:
+                print(f"\npass {pass_no}: retrying {len(todo)} failed seed(s) after {args.pass_wait:.0f}s")
+                await nap(args.pass_wait, out_dir)
+            for seed in todo:
+                previous = entries.get(seed)
+                entry = await render_one(args, spec, settings, prompt, negative, seed, out_dir, name, state)
+                if previous:  # keep the attempt history of earlier passes
+                    entry["history"] = previous.get("history", []) + entry["history"]
+                    entry["attempts"] = len(entry["history"])
+                entries[seed] = entry
+                report(entry)
+                save(ordered())
+                if state.get("stop"):
+                    raise StopRun(state["stop"])
+            todo = [s for s in seeds if entries[s]["status"] != "ok"]
+    except StopRun as e:
+        state["stop"] = str(e)
+        print(f"\nrun stopped: {e}")
+    return ordered()
+
+
+async def attempt_once(args, rb: RequestBuilder, progress: dict, out_dir: Path):
+    """One generation on a fresh connection; cancelled on a stall, a timeout or a stop file."""
     async with DrawThings.grpc(host=args.host, port=args.port, progressbar=False, disable_messages=True) as service:
-        for seed in seeds:
-            entry = await render_one(service, args, spec, settings, prompt, negative, seed, out_dir, name)
-            entries.append(entry)
-            print(f"  seed {seed}: {entry['status']}"
-                  + (f" in {entry['seconds']:.0f}s (first step at {entry['first_step_seconds']}s) -> {entry['file']}"
-                     if entry["status"] == "ok" else f": {entry['error']}"))
-    return entries
+        task = asyncio.ensure_future(service.generate(rb))
+        t0 = time.monotonic()
+        try:
+            while True:
+                done, _ = await asyncio.wait({task}, timeout=2)
+                if done:
+                    return task.result()
+                check_stop(out_dir)
+                now = time.monotonic()
+                if now - t0 > args.timeout:
+                    raise TimeoutError(f"no image after {args.timeout:.0f}s")
+                if now - progress["last"] > args.stall_timeout:
+                    where = f"step {progress['step']}" if progress.get("step") is not None else "before the first step"
+                    raise TimeoutError(f"stalled {args.stall_timeout:.0f}s with no progress ({where})")
+        finally:
+            if not task.done():
+                task.cancel()
+                await asyncio.wait({task}, timeout=5)
 
 
-async def render_one(service, args, spec, settings, prompt, negative, seed, out_dir: Path, name: str) -> dict:
+async def render_one(args, spec, settings, prompt, negative, seed, out_dir: Path, name: str, state: dict) -> dict:
     config = Configs.create(
         model=spec["file"], width=settings["width"], height=settings["height"], steps=settings["steps"],
         guidance=settings["cfg"], shift=settings["shift"], sampler=settings["sampler"], seed=seed,
@@ -218,12 +349,14 @@ async def render_one(service, args, spec, settings, prompt, negative, seed, out_
         config["loras"] = [{"file": f, "weight": w} for f, w in settings["loras"]]
     rb = RequestBuilder(config, prompt, negative or None)
     rb.model_spec = spec  # picked up by _build_with_override
-    t0 = time.monotonic()
-    first_step: dict = {}
+    progress: dict = {}
 
     def on_progress(signpost, _preview):
-        if signpost is not None and signpost.is_set("sampling") and "t" not in first_step:
-            first_step["t"] = round(time.monotonic() - t0, 1)
+        now = time.monotonic()
+        progress["last"] = now
+        if signpost is not None and signpost.is_set("sampling"):
+            progress["step"] = signpost.sampling.step
+            progress.setdefault("first", round(now - progress["t0"], 1))
 
     if hasattr(rb, "on_progress"):
         rb.on_progress(on_progress)
@@ -231,31 +364,64 @@ async def render_one(service, args, spec, settings, prompt, negative, seed, out_
         rb._on_progress = on_progress  # noqa: SLF001
 
     file = out_dir / f"{name}-s{seed}.png"
+    part = out_dir / f"{name}-s{seed}.part.png"  # PIL picks the format from the extension
     attempts = args.retries + 1
+    history: list[dict] = []
     error = ""
+
+    def entry(status: str) -> dict:
+        last = history[-1] if history else {}
+        return {"seed": seed, "status": status, "seconds": last.get("seconds"),
+                "first_step_seconds": last.get("first_step_seconds"), "file": str(file) if status == "ok" else None,
+                "attempts": len(history), "error": None if status == "ok" else error, "history": history}
+
     for attempt in range(1, attempts + 1):
-        t0 = time.monotonic()
-        first_step.clear()
+        progress.clear()
+        progress["t0"] = progress["last"] = time.monotonic()
         try:
-            result = await asyncio.wait_for(service.generate(rb), timeout=args.timeout)
-            result[-1].to_file(file)
-            return {"seed": seed, "status": "ok", "seconds": round(time.monotonic() - t0, 1),
-                    "first_step_seconds": first_step.get("t"), "file": str(file), "attempts": attempt, "error": None}
-        except asyncio.TimeoutError:
-            error = f"timed out after {args.timeout}s"
-        except Exception as e:  # noqa: BLE001
+            check_stop(out_dir)
+            await wait_for_server(args.host, args.port, args.server_wait, out_dir)
+            progress["t0"] = progress["last"] = time.monotonic()
+            state["requests"] = state.get("requests", 0) + 1
+            result = await attempt_once(args, rb, progress, out_dir)
+            if len(result) == 0:
+                raise RuntimeError("empty result")
+            result[-1].to_file(part)  # write aside, check, then rename: a .png on disk is always a good one
+            problem = image_problem(part, settings["width"], settings["height"])
+            if problem:
+                raise RuntimeError(problem)
+            part.replace(file)
+            history.append({"attempt": attempt, "error": None, "seconds": round(time.monotonic() - progress["t0"], 1),
+                            "first_step_seconds": progress.get("first"), "last_step": progress.get("step")})
+            state["failures_in_a_row"] = 0
+            return entry("ok")
+        except StopRun as e:
+            error = str(e)
+            part.unlink(missing_ok=True)
+            state["stop"] = error
+            return entry("stopped")
+        except Exception as e:  # noqa: BLE001  (CancelledError and KeyboardInterrupt pass through)
             error = f"{type(e).__name__}: {str(e)[:300]}"
-        elapsed = time.monotonic() - t0
-        # The cloud behind Bridge Mode often aborts for no reason before the first sampling
-        # step; such failures are retried whatever the message says.
-        before_sampling = "t" not in first_step
-        if attempt < attempts and (before_sampling or is_retryable(error)):
-            print(f"  seed {seed}: attempt {attempt} failed after {elapsed:.0f}s ({error}); retrying in {args.retry_wait:.0f}s")
-            await asyncio.sleep(args.retry_wait)
-            continue
-        break
-    return {"seed": seed, "status": "error", "seconds": round(time.monotonic() - t0, 1),
-            "first_step_seconds": first_step.get("t"), "file": None, "attempts": attempts, "error": error}
+        part.unlink(missing_ok=True)
+        elapsed = time.monotonic() - progress["t0"]
+        where = f"at step {progress['step']}" if progress.get("step") is not None else "before the first step"
+        history.append({"attempt": attempt, "error": error, "seconds": round(elapsed, 1),
+                        "first_step_seconds": progress.get("first"), "last_step": progress.get("step")})
+        state["failures_in_a_row"] = state.get("failures_in_a_row", 0) + 1
+        if state["failures_in_a_row"] >= args.max_failures_in_a_row:
+            state["stop"] = (f"{state['failures_in_a_row']} attempts failed in a row, last: {error}; that looks "
+                             "systematic (spec, settings, prompt, or this script), not the cloud")
+            return entry("error")
+        if attempt < attempts:
+            wait = backoff(attempt, args.retry_wait, args.retry_wait_max)
+            print(f"  seed {seed}: attempt {attempt}/{attempts} failed after {elapsed:.0f}s {where} ({error}); "
+                  f"retrying in {wait:.0f}s")
+            try:
+                await nap(wait, out_dir)
+            except StopRun as e:
+                state["stop"] = str(e)
+                return entry("error")
+    return entry("error")
 
 
 async def check(args, recipes: dict) -> int:
@@ -288,7 +454,8 @@ def main() -> int:
     ap.add_argument("--prompt", help="inline prompt (instead of --prompt-file)")
     ap.add_argument("--negative-file"); ap.add_argument("--negative", default=None)
     ap.add_argument("--size", help="WxH in pixels, multiples of 64 (default: recipe default)")
-    ap.add_argument("--seeds", default="1", help="a count (4 random seeds) or a list (12345,777)")
+    ap.add_argument("--seeds", help="literal seeds: 12345 or 12345,777 (never a count)")
+    ap.add_argument("--count", type=int, help="draw this many random seeds (default 1 when --seeds is not given)")
     ap.add_argument("--steps", type=int); ap.add_argument("--cfg", type=float); ap.add_argument("--shift", type=float)
     ap.add_argument("--sampler"); ap.add_argument("--resolution-dependent-shift", action="store_true")
     ap.add_argument("--tiled-decode", action="store_true")
@@ -301,8 +468,23 @@ def main() -> int:
     ap.add_argument("--log", help="append one JSON line per image to this runs.jsonl")
     ap.add_argument("--note", default="", help="free text stored with the run (what changed this round)")
     ap.add_argument("--no-sheet", action="store_true"); ap.add_argument("--thumb", type=int, default=512)
-    ap.add_argument("--retries", type=int, default=3, help="extra attempts per image (default 3; the cloud aborts jobs at random)"); ap.add_argument("--retry-wait", type=float, default=20)
-    ap.add_argument("--timeout", type=float, default=900, help="seconds per image")
+    ap.add_argument("--retries", type=int, default=3,
+                    help="extra attempts per image within a pass (default 3; every failure counts as transient)")
+    ap.add_argument("--retry-wait", type=float, default=20, help="first pause between attempts; doubles each time (default 20 s)")
+    ap.add_argument("--retry-wait-max", type=float, default=240, help="longest pause between attempts (default 240 s)")
+    ap.add_argument("--passes", type=int, default=2, help="passes over the seeds; later passes retry the failed ones (default 2)")
+    ap.add_argument("--pass-wait", type=float, default=120, help="pause before a retry pass (default 120 s)")
+    ap.add_argument("--timeout", type=float, default=1200, help="seconds per attempt (default 1200)")
+    ap.add_argument("--stall-timeout", type=float, default=300,
+                    help="cancel and retry an attempt that sends no progress for this long (default 300 s)")
+    ap.add_argument("--server-wait", type=float, default=60,
+                    help="how long to wait for an unreachable API server before stopping the run (default 60 s)")
+    ap.add_argument("--max-failures-in-a-row", type=int, default=5,
+                    help="stop the run after this many failed attempts in a row: past that it is not the cloud (default 5)")
+    ap.add_argument("--max-images", type=int, default=8,
+                    help="refuse to start when more images than this would be rendered (default 8; raise it on purpose)")
+    ap.add_argument("--overwrite", action="store_true",
+                    help="render every seed again even when --out already holds it from the same settings")
     ap.add_argument("--host", default=os.environ.get("DRAWTHINGS_HOST", "127.0.0.1"))
     ap.add_argument("--port", type=int, default=int(os.environ.get("DRAWTHINGS_PORT", "7859")))
     ap.add_argument("--tier", choices=["plus", "community"], default=os.environ.get("DRAWTHINGS_TIER", "plus"),
@@ -355,7 +537,9 @@ def main() -> int:
 
     prompt, prompt_path = read_prompt(args.prompt_file, args.prompt)
     negative = (Path(args.negative_file).read_text(encoding="utf-8").strip() if args.negative_file else (args.negative or "")).strip()
-    seeds = parse_seeds(args.seeds)
+    if args.seeds and args.count:
+        raise SystemExit("give --seeds (literal seeds) or --count (random seeds), not both")
+    seeds = parse_seeds(args.seeds) if args.seeds else [random.randint(1, 2**32 - 2) for _ in range(args.count or 1)]
     if not args.out and not args.estimate_only:
         raise SystemExit("give --out DIR")
     out_dir = Path(args.out or ".")
@@ -392,24 +576,87 @@ def main() -> int:
             return 3
     if args.estimate_only:
         return 0 if units is None or units <= limit else 1
-    started = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    entries = asyncio.run(render_all(args, spec, settings, prompt, negative, seeds, out_dir, name))
 
-    sheet = None if args.no_sheet else contact_sheet(entries, out_dir / f"{name}-sheet.jpg", args.thumb)
+    # Resume: the same command run again against the same --out renders only what is missing.
+    started = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    run_path = out_dir / "run.json"
+    plain_settings = {k: v for k, v in settings.items() if k != "loras"}
+    done: dict[int, dict] = {}
+    prior = None
+    if run_path.exists():
+        try:
+            prior = json.loads(run_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            prior = None
+    same_run = bool(prior) and all((
+        prior.get("model") == spec["file"], prior.get("name") == name, prior.get("prompt_sha256") == sha256(prompt),
+        prior.get("negative", "") == negative, prior.get("settings") == plain_settings,
+        [list(x) for x in prior.get("loras", [])] == [list(x) for x in settings["loras"]],
+    ))
+    if same_run and not args.overwrite:
+        if not args.seeds:  # --count: keep the random seeds drawn the first time
+            earlier = prior.get("seeds") or [e["seed"] for e in prior.get("images", [])]
+            seeds = (earlier + seeds)[:max(len(seeds), len(earlier))]
+        done = {e["seed"]: {**e, "resumed": True} for e in prior.get("images", [])
+                if e.get("status") == "ok" and e.get("file") and Path(e["file"]).exists() and e["seed"] in seeds}
+        started = prior.get("started", started)
+        if done:
+            print(f"resuming {run_path}: {len(done)} of {len(seeds)} seeds already rendered")
+    elif not args.overwrite:
+        clash = [s for s in seeds if (out_dir / f"{name}-s{s}.png").exists()]
+        if clash:
+            print(f"{out_dir} already holds {name} renders of seeds {clash} made with other settings or another prompt; "
+                  "use a new --out, or pass --overwrite to replace them", file=sys.stderr)
+            return 5
+
     run = {
         "started": started, "run_dir": str(out_dir), "name": name, "recipe": args.recipe, "model": spec["file"], "spec": spec,
         "prompt_file": prompt_path, "prompt_sha256": sha256(prompt), "prompt_words": len(prompt.split()), "prompt_chars": len(prompt),
         "prompt_tokens": tokens, "prompt_tokens_exact": exact,
-        "prompt": prompt, "negative": negative, "settings": {k: v for k, v in settings.items() if k != "loras"},
-        "loras": settings["loras"], "note": args.note, "host": f"{args.host}:{args.port}", "compute_units": units, "images": entries,
-        "sheet": str(sheet) if sheet else None,
+        "prompt": prompt, "negative": negative, "settings": plain_settings,
+        "loras": settings["loras"], "note": args.note, "host": f"{args.host}:{args.port}", "compute_units": units,
+        "seeds": seeds, "images": [], "sheet": None,
     }
-    (out_dir / "run.json").write_text(json.dumps(run, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
+
+    def save(entries: list[dict]) -> None:
+        run["updated"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        run["images"] = [{k: v for k, v in e.items() if k != "resumed"} for e in entries]
+        tmp = run_path.with_name("run.json.part")
+        tmp.write_text(json.dumps(run, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
+        tmp.replace(run_path)
+
+    todo = [s for s in seeds if s not in done]
+    if len(todo) > args.max_images:
+        print(f"{len(todo)} images to render, more than --max-images {args.max_images}; raise it if that is intended",
+              file=sys.stderr)
+        return 7
+    worst = len(todo) * (args.retries + 1) * args.passes
+    eta = "" if units is None else f", roughly {len(todo) * (30 + units * 0.005) / 60:.0f} min if nothing fails"
+    print(f"plan: {len(todo)} image(s), at most {worst} requests{eta}")
+    print(f"to stop: Ctrl-C, kill {os.getpid()}, or touch {out_dir / 'STOP'} (or {GLOBAL_STOP} for every run)")
+
+    def on_term(_signum, _frame):
+        raise KeyboardInterrupt
+
+    signal.signal(signal.SIGTERM, on_term)
+    state: dict = {}
+    try:
+        entries = asyncio.run(render_all(args, spec, settings, prompt, negative, seeds, out_dir, name, done, save, state))
+    except KeyboardInterrupt:
+        print(f"\ninterrupted after {state.get('requests', 0)} requests; finished seeds are in {run_path}; "
+              "run the same command again to resume", file=sys.stderr)
+        return 130
+    run["requests"] = state.get("requests", 0)
+    run["stopped"] = state.get("stop")
+
+    sheet = None if args.no_sheet else contact_sheet(entries, out_dir / f"{name}-sheet.jpg", args.thumb)
+    run["sheet"] = str(sheet) if sheet else None
+    save(entries)
     if args.log:
         log_path = Path(args.log)
         log_path.parent.mkdir(parents=True, exist_ok=True)
         with log_path.open("a", encoding="utf-8") as fh:
-            for e in entries:
+            for e in (e for e in entries if not e.get("resumed")):
                 line = {"ts": started, "run_dir": str(out_dir), "name": name, "recipe": args.recipe, "model": spec["file"],
                         "prompt_file": prompt_path, "prompt_sha256": run["prompt_sha256"], "prompt_words": run["prompt_words"], "prompt_tokens": tokens,
                         "width": width, "height": height, "steps": settings["steps"], "cfg": settings["cfg"], "shift": settings["shift"],
@@ -419,14 +666,17 @@ def main() -> int:
                 fh.write(json.dumps(line, ensure_ascii=False) + "\n")
 
     ok = [e for e in entries if e["status"] == "ok"]
-    print(f"\n{len(ok)}/{len(entries)} images in {out_dir}")
+    print(f"\n{len(ok)}/{len(seeds)} images in {out_dir} ({state.get('requests', 0)} requests sent)")
     if sheet:
         print(f"contact sheet: {sheet}")
     elif ok:
         print(f"image: {ok[0]['file']}")
     if args.json:
         print(json.dumps(run, ensure_ascii=False))
-    return 0 if len(ok) == len(entries) else 1
+    if state.get("stop"):
+        print("run the same command again to resume once the cause is fixed")
+        return 6
+    return 0 if len(ok) == len(seeds) else 1
 
 
 if __name__ == "__main__":
