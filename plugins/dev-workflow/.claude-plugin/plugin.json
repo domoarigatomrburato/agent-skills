@@ -1,0 +1,14 @@
+{
+  "name": "dev-workflow",
+  "description": "Grilling, Domain Modeling and Inquisition: challenge plans, record durable decisions, review changes with independent reviewers",
+  "version": "1.0.0",
+  "author": {
+    "name": "Alessandro Burato"
+  },
+  "license": "MIT",
+  "skills": [
+    "./skills/grilling",
+    "./skills/domain-modeling",
+    "./skills/inquisition"
+  ]
+}

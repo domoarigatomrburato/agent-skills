@@ -1,0 +1,19 @@
+{
+  "name": "agent-skills",
+  "description": "Alessandro Burato's skills for Claude Code, Cursor and Codex: development workflow and image prompting",
+  "owner": {
+    "name": "Alessandro Burato"
+  },
+  "plugins": [
+    {
+      "name": "dev-workflow",
+      "source": "./plugins/dev-workflow",
+      "description": "Grilling, Domain Modeling and Inquisition: challenge plans, record durable decisions, review changes with independent reviewers"
+    },
+    {
+      "name": "image-prompting",
+      "source": "./plugins/image-prompting",
+      "description": "Prompts for Ideogram 4 and Krea 2, with a caption validator and a token-counting linter"
+    }
+  ]
+}
