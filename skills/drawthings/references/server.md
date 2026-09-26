@@ -84,6 +84,17 @@ happen and are the reason for the retries.
 
 ## Deriving a spec for a new cloud model
 
+First check that the cloud serves the model at all. The served list is the file
+`models.txt` in the `drawthingsai/community-models` repository on GitHub (the wiki's Cloud
+Compute page links it as "current community models"; `loras.txt` beside it lists the cloud
+LoRAs). The entries are model ids, not checkpoint file names (`flux-2-dev`, `qwen-image-2.1`,
+`ideogram-4`, `ideogram-4-fast`, `ideogram-4-instant`, `krea-2-raw`, `hidream-i1-full`,
+`ltx-2.3-22b-dev`, `wan-v2.2-a14b-...`, plus dozens of SDXL and SD 1.5 community checkpoints on
+2026-09-26); the file name the request must carry still comes from a PNG the app exported or
+from the model zoo. A model missing from that list fails through Bridge Mode whatever the spec
+says. The wiki states the per-job ceilings: 40,000 compute units on Draw Things+, 15,000 on
+the free Community tier, and local LoRAs (BYOL) only on Draw Things+.
+
 Shortest route: export any PNG the app made with that model and run `scripts/png_config.py`
 on it. The metadata names the model file exactly as the cloud expects it (the app's "Ideogram 4
 remote" is `ideogram_4_q8p.ckpt`, not the `i8x` file the download list shows) and the settings

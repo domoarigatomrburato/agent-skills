@@ -93,9 +93,10 @@ constant they tuned on FLUX; treat a result within a few percent of the limit as
 A model the app already has locally needs no recipe: `--spec` with a file holding the entry
 from `--check`'s list (name, file, version, text encoder, autoencoder, default scale) works,
 or add it to `recipes.json` with a `defaults` block and a `notes` line saying what was
-verified. For a new cloud-only model, derive the spec as described in `references/server.md`
-(the version string, the text encoder and the autoencoder come from the app's open-source
-model zoo) and test it at a small size first. Every spec for sizes above 1024 px on a side
+verified. For a new cloud-only model, first check it is in the cloud's served list (`models.txt` in
+the `drawthingsai/community-models` GitHub repository), then derive the spec as described in
+`references/server.md` (the version string, the text encoder and the autoencoder come from
+the app's open-source model zoo) and test it at a small size first. Every spec for sizes above 1024 px on a side
 needs `default_scale` 32.
 
 ## 4. Look, then iterate
