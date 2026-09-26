@@ -1,6 +1,6 @@
 ---
 name: drawthings
-description: Render prompts through the Draw Things app's API server (gRPC) from the terminal instead of pasting them into the app. Picks a model recipe (Krea 2 Turbo and Ideogram 4 through Draw Things+ cloud compute, or any model the app has locally), runs a seed set one job at a time, survives the flaky cloud (retries, stall detection, resume) while staying easy to stop, saves PNGs with the exact prompt, a run log and a contact sheet, and looks at the results. Use this skill whenever the user wants to generate, render, batch, retry, compare seeds or log image experiments with Draw Things, mentions its API server, gRPC, Bridge Mode or cloud compute, or asks to run a Krea or Ideogram prompt "in Draw Things", even if they only say "render it" or "try a few seeds".
+description: Render prompts through the Draw Things app's API server (gRPC) from the terminal instead of pasting them into the app. Picks a model recipe (Krea 2 Turbo, Ideogram 4 and Qwen Image 2512 through Draw Things+ cloud compute, or any model the app has locally), runs a seed set one job at a time, survives the flaky cloud (retries, stall detection, resume) while staying easy to stop, saves PNGs with the exact prompt, a run log and a contact sheet, and looks at the results. Use this skill whenever the user wants to generate, render, batch, retry, compare seeds or log image experiments with Draw Things, mentions its API server, gRPC, Bridge Mode or cloud compute, or asks to run a Krea or Ideogram prompt "in Draw Things", even if they only say "render it" or "try a few seeds".
 ---
 
 # Draw Things API server
@@ -41,8 +41,8 @@ server.
 ## 2. Run a round
 
 Write the prompt with the model's prompting skill first (`krea-prompt` for Krea 2 Turbo,
-`ideogram-prompt` for Ideogram 4, which produces a JSON caption), lint or validate it, save it
-to a file, then:
+`ideogram-prompt` for Ideogram 4, which produces a JSON caption; plain descriptive prose for Qwen
+Image), lint or validate it, save it to a file, then:
 
 ```bash
 python3 scripts/dt_render.py --recipe krea-2-turbo --prompt-file prompts/krea-2-turbo.txt \
@@ -51,7 +51,7 @@ python3 scripts/dt_render.py --recipe krea-2-turbo --prompt-file prompts/krea-2-
 
 - `--count 4` draws four random seeds (printed and logged); `--seeds 12345,777` reuses known ones. `--seeds` always means literal seeds, so `--seeds 42` is the one seed 42. Seeds run one after another because the server takes one job at a time. A run refuses to start above `--max-images` (default 8); raise it on purpose for bigger rounds.
 - `--size WxH` overrides the recipe's default (multiples of 64, at most 2048 on a side; `size.py` in the krea-prompt skill gives the size for a ratio). `--steps`, `--cfg`, `--shift`, `--sampler` override the recipe; leave them alone while iterating on a prompt.
-- A `.json` prompt file is validated and minified before sending; a `.txt` file is sent as is. `--negative-file` adds a negative prompt where the model uses one (Turbo ignores it).
+- A `.json` prompt file is validated and minified before sending; a `.txt` file is sent as is. `--negative-file` adds a negative prompt where the model uses one (Turbo ignores it). A recipe can carry a default negative (`qwen-image-2512` carries the model card's); `--negative-file` or `--negative` replaces it and `--negative ""` sends none.
 - `--out` gets `<name>-s<seed>.png` (with Draw Things metadata inside the PNG), a copy of the exact prompt, `run.json` with everything, and `<name>-sheet.jpg` when at least two images succeeded. `--name` sets the base name (default: the prompt file's stem).
 - `--log` appends one JSON line per image: settings, seed, timing, prompt hash and file, status, your `--note`. Keep one `runs.jsonl` per project so a whole project's history is one file.
 - Expect 15 to 60 s before the first sampling step and 90 to 230 s per 2K image on the cloud (Ideogram and Qwen Image near 40,000 units are the slow end). A round of four seeds is six to fifteen minutes. **Never run a render as a blocking foreground command**, not even a one-image test: start it in the background so the conversation stays open, and tell the user it is running and how to stop it. Before starting, the script prints the plan (images, the most requests it may send, rough minutes) and how to stop it.
@@ -78,6 +78,10 @@ CFG is on (guidance above 1). Reference points for the recipes:
 | ideogram-4 | 2048x1344 | 20 | about 28,300 (28 steps: about 39,700) |
 | ideogram-4 | 2048x1344 | 32 | about 45,300: over the limit |
 | ideogram-4 | 2048x2048 | 20 | about 48,700: over the limit |
+| qwen-image-2512 | 1536x1024 | 34 | about 21,600: the recipe default |
+| qwen-image-2512 | 1536x1024 | 50 | about 31,800: the model card's step count |
+| qwen-image-2512 | 1408x1792 | 34 | about 38,800 |
+| qwen-image-2512 | 1920x1280 | 36 | about 39,700: the app showed 39,699, just under |
 
 `--estimate-only` prints the number without connecting; `--tier community` applies the lower
 limit; `DRAWTHINGS_TIER` sets the default. The formula is upstream's, with a calibration
@@ -91,6 +95,7 @@ constant they tuned on FLUX; treat a result within a few percent of the limit as
 |---|---|---|---|
 | `krea-2-turbo` | `krea_2_turbo_i8x.ckpt` (cloud) | 8 steps, CFG 1.0, shift 3.16, DDIM Trailing, 2048x1344 | plain text from `krea-prompt` |
 | `ideogram-4` | `ideogram_4_q8p.ckpt` (cloud) | 32 steps, CFG 7, shift 2.99, DPM++ 2M Trailing, zero negative prompt on, 1920x1280: the app's own settings for "Ideogram 4 remote" | JSON caption from `ideogram-prompt`, up to 2,000 tokens |
+| `qwen-image-2512` | `qwen_image_2512_q8p.ckpt` (cloud) | 34 steps, CFG 4, shift 2.22, DPM++ 2M Trailing, the model card's negative prompt, 1536x1024. Shift follows the card's schedule by size (1024x1024 2.00, 1408x1792 2.67, 1920x1280 2.64); the recipe notes list more | plain descriptive prose; 513 tokens rendered fine |
 
 A model the app already has locally needs no recipe: `--spec` with a file holding the entry
 from `--check`'s list (name, file, version, text encoder, autoencoder, default scale) works,
@@ -98,8 +103,9 @@ or add it to `recipes.json` with a `defaults` block and a `notes` line saying wh
 verified. For a new cloud-only model, first check it is in the cloud's served list (`models.txt` in
 the `drawthingsai/community-models` GitHub repository), then derive the spec as described in
 `references/server.md` (the version string, the text encoder and the autoencoder come from
-the app's open-source model zoo) and test it at a small size first. Every spec for sizes above 1024 px on a side
-needs `default_scale` 32.
+the app's open-source model zoo) and test it at a small size first. A spec for a cloud-only model (Krea, Ideogram) needs
+`default_scale` 32 for sizes above 1024 px on a side; a model the zoo already has keeps the
+zoo's value (Qwen Image's 16 renders 1920x1280).
 
 ## 4. Look, then iterate
 
@@ -117,7 +123,7 @@ prompt placed, rendered text, the light, the style label. Then:
 - **The Draw Things+ cloud is generous but flaky.** It aborts jobs at random, mostly before the first sampling step (`INTERNAL: unknown error processing request` after 20 to 30 s), sometimes mid-sampling, and it stalls. The script treats every failure as transient: each attempt gets a fresh connection, a job that sends no progress for `--stall-timeout` (300 s) is cancelled, the retries back off from 20 s to 240 s (`--retries` 3, `--retry-wait`, `--retry-wait-max`), and seeds that still fail get a second pass at the end (`--passes` 2). A PNG only lands on disk after it has been checked (right size, not one flat colour).
 - **When failures are systematic the script stops by itself**: after `--max-failures-in-a-row` (5) failed attempts, or when the API server stays unreachable for `--server-wait` (60 s; the user may have quit the app on purpose). Exit code 6 means the run stopped; fix the cause and rerun the same command to resume. Never conclude a spec, size or prompt is wrong from one failure, but the same failure on every attempt is not the cloud.
 - **A cloud model that renders in the app but always fails through the API mid-sampling with `No images received from server` has an incomplete spec.** The spec sent through `override.models` replaces the app's built-in entry, so it must carry every field the model zoo entry has: for Qwen Image that is `objective` (`{"u": {"condition_scale": 1000}}`), `hires_fix_scale` and the `mmdit` block with its per-layer activation scaling. Copy these from the model's `metadata.json` in `drawthingsai/community-models` (the JSON form of the zoo entry, snake_case keys) rather than writing a bare spec.
-- The same error at the first step on every attempt, for sizes above 1024 px, means `default_scale` 16 in the spec; use 32.
+- The same error at the first step on every attempt, for sizes above 1024 px, with a spec for a cloud-only model (Krea, Ideogram) means `default_scale` 16 in the spec; use 32.
 - With Bridge Mode on, every job goes to the cloud: local community checkpoints fail through it. Turn Bridge Mode off to render local models, on for the cloud recipes.
 - One job at a time. Do not run two `dt_render.py` at once against one server.
 - A cloud model that is `not local` with Bridge Mode off returns a download request instead of an image; the script reports it as an error.

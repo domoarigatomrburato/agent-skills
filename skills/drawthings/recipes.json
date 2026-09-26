@@ -51,5 +51,44 @@
     "notes": "Prompt is a JSON caption (ideogram-prompt skill); pass the .json file and it is minified before sending. The defaults are the app's own settings for 'Ideogram 4 remote', read from the metadata of a PNG the app exported (32 steps, guidance 7, shift 2.99, DPM++ 2M Trailing, zero negative prompt on, 1920x1280); with them the API render of the app's seed reproduced the app's image pixel for pixel (2026-09-26, 198 s, 39,477 compute units, the app showed about 39,000). The model file must be ideogram_4_q8p.ckpt: with ideogram_4_i8x.ckpt guidance above 1 breaks down as the caption grows (fine to about 500 Qwen tokens, noise past 1,000), with the q8p file a 1,309-token caption renders cleanly at guidance 7 with or without zero negative prompt. 1920x1280 at 32 steps is just under the 40,000-unit limit; 2048x1344 fits 28 steps, 20 steps for iteration; 8 steps look over-baked.",
     "prompt_max_tokens": 2000,
     "prompt_max_tokens_note": "Ideogram's own pipeline rejects captions over 2048 text tokens and the chat template adds about ten"
+  },
+  "qwen-image-2512": {
+    "title": "Qwen Image 2512, 8-bit, Draw Things cloud compute (the app's 'Qwen Image 2512')",
+    "spec": {
+      "name": "Qwen Image 2512",
+      "file": "qwen_image_2512_q8p.ckpt",
+      "version": "qwen_image",
+      "prefix": "",
+      "default_scale": 16,
+      "hires_fix_scale": 24,
+      "text_encoder": "qwen_2.5_vl_7b_q8p.ckpt",
+      "autoencoder": "qwen_image_vae_f16.ckpt",
+      "upcast_attention": false,
+      "high_precision_autoencoder": false,
+      "objective": {
+        "u": {
+          "condition_scale": 1000
+        }
+      },
+      "mmdit": {
+        "qk_norm": true,
+        "dual_attention_layers": [],
+        "activation_qk_scaling": {"0": 2, "1": 2, "2": 2, "3": 2, "4": 2, "5": 2, "6": 2, "7": 2, "8": 2, "9": 2, "10": 2, "11": 2, "12": 2, "13": 2, "14": 2, "15": 2, "16": 2, "17": 2, "18": 2, "19": 2, "20": 2, "21": 2, "22": 2, "23": 2, "24": 2, "25": 2, "26": 2, "27": 2, "28": 2, "29": 2, "30": 2, "31": 2, "32": 2, "33": 2, "34": 2, "35": 2, "36": 2, "37": 2, "38": 2, "39": 2, "40": 2, "41": 2, "42": 2, "43": 2, "44": 2, "45": 2, "46": 2, "47": 2, "48": 2, "49": 2, "50": 2, "51": 2, "52": 2, "53": 2, "54": 2, "55": 2, "56": 2, "57": 2, "58": 2, "59": 2},
+        "activation_proj_scaling": {"0": 2, "1": 2, "2": 2, "3": 2, "4": 2, "5": 2, "6": 2, "7": 2, "8": 2, "9": 2, "10": 2, "11": 2, "12": 2, "13": 2, "14": 2, "15": 2, "16": 2, "17": 2, "18": 2, "19": 2, "20": 2, "21": 2, "22": 2, "23": 2, "24": 2, "25": 2, "26": 2, "27": 2, "28": 2, "29": 2, "30": 2, "31": 2, "32": 2, "33": 2, "34": 2, "35": 2, "36": 2, "37": 2, "38": 2, "39": 2, "40": 2, "41": 2, "42": 2, "43": 2, "44": 2, "45": 2, "46": 2, "47": 2, "48": 2, "49": 2, "50": 2, "51": 2, "52": 2, "53": 2, "54": 2, "55": 2, "56": 2, "57": 2, "58": 2, "59": 2},
+        "activation_ffn_proj_up_scaling": {"0": 2, "1": 2, "2": 2, "3": 2, "4": 2, "5": 2, "6": 2, "7": 2, "8": 2, "9": 2, "10": 2, "11": 2, "12": 2, "13": 2, "14": 2, "15": 2, "16": 2, "17": 2, "18": 2, "19": 2, "20": 2, "21": 2, "22": 2, "23": 2, "24": 2, "25": 2, "26": 2, "27": 2, "28": 2, "29": 2, "30": 2, "31": 2, "32": 2, "33": 2, "34": 2, "35": 2, "36": 2, "37": 2, "38": 2, "39": 2, "40": 2, "41": 2, "42": 2, "43": 2, "44": 2, "45": 2, "46": 2, "47": 2, "48": 2, "49": 2, "50": 2, "51": 2, "52": 2, "53": 2, "54": 2, "55": 2, "56": 2, "57": 2, "58": 2, "59": 2},
+        "activation_ffn_scaling": {"0": 2, "1": 2, "2": 2, "3": 2, "4": 2, "5": 2, "6": 2, "7": 2, "8": 2, "9": 2, "10": 2, "11": 2, "12": 2, "13": 2, "14": 2, "15": 2, "16": 2, "17": 2, "18": 2, "19": 2, "20": 2, "21": 2, "22": 2, "23": 2, "24": 2, "25": 2, "26": 2, "27": 2, "28": 2, "29": 2, "30": 2, "31": 2, "32": 2, "33": 2, "34": 2, "35": 2, "36": 2, "37": 2, "38": 2, "39": 2, "40": 2, "41": 2, "42": 2, "43": 2, "44": 2, "45": 2, "46": 2, "47": 2, "48": 2, "49": 2, "50": 2, "51": 2, "52": 2, "53": 2, "54": 2, "55": 2, "56": 2, "57": 2, "58": 2, "59": 2}
+      }
+    },
+    "defaults": {
+      "steps": 34,
+      "cfg": 4.0,
+      "shift": 2.22,
+      "sampler": "DPMPP2MTrailing",
+      "resolution_dependent_shift": false,
+      "zero_negative_prompt": false,
+      "size": "1536x1024",
+      "negative": "低分辨率，低画质，肢体畸形，手指畸形，画面过饱和，蜡像感，人脸无细节，过度光滑，画面具有AI感。构图混乱。文字模糊，扭曲。"
+    },
+    "notes": "Verified 2026-09-26 through Bridge Mode at 1024x704, 1536x1024 and 1920x1280. The spec is the app's own model zoo entry with every field: without `objective` and the `mmdit` activation scaling the cloud drops the job mid-sampling with 'No images received from server'. default_scale 16 is the zoo's value and renders 1920x1280. Defaults: the model card's CFG 4 and negative prompt at 34 steps DPM++ 2M Trailing, which matched the card's 50 Euler steps (DDIM Trailing here) down to fine detail at two thirds of the compute (21,648 against 31,835 units at 1536x1024, the card's 3:2 size rounded to multiples of 64). Shift follows the card's resolution-dependent schedule, exp(0.5 + 0.4 * ((W/16)*(H/16) - 256) / 7936): 1024x1024 2.00, 1344x1344 2.32, 1536x1024 2.22, 1408x1792 2.67, 1920x1280 2.64, 2048x1344 2.80. Draw Things' own preset is 30 steps, CFG 4, shift 2, UniPC Trailing. 1920x1280 at 36 steps is 39,699 units, the top of the Draw Things+ limit. The app's 1920x1280 image was reproduced through the API down to fine detail but not pixel for pixel."
   }
 }

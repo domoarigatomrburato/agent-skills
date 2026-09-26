@@ -22,7 +22,7 @@ Mode), Cloud Compute selected in the project.
 
 - `version` is the app's `ModelVersion` raw value (`Libraries/SwiftDiffusion/Sources/Samplers/Sampler.swift`): `krea_2`, `ideogram_4`, `z_image`, `qwen_image`, `flux2`, ...
 - `text_encoder` and `autoencoder` are file names from the app's `ModelZoo.swift` hash table (`Libraries/ModelZoo/Sources/ModelZoo.swift`); cloud-only files sit there without a built-in specification, next to their text encoder. The autoencoder follows the latent layout: 16-channel models use `qwen_image_vae_f16.ckpt` or `flux_1_vae_f16.ckpt`, 32-channel (128 after 2x2 patching, the `latentsMean`/`latentsStd` arrays with 128 entries) use `flux_2_vae_f16.ckpt`.
-- `default_scale` 16 caps generation at 1024 px on a side through the API; 32 allows 2048. Every size above 1024 failed at sampling step 0 with 16 and rendered with 32.
+- `default_scale` 16 in a spec for a cloud-only model (Krea 2, Ideogram 4) caps generation at 1024 px on a side through the API; 32 allows 2048. Every size above 1024 failed at sampling step 0 with 16 and rendered with 32. For a model the zoo already has, keep the zoo's value: Qwen Image 2512's entry says 16, and with 16 it rendered 1920x1280 (as it did with 32).
 - `clip_encoder` set to the model file mirrors the app's own community entries for these architectures.
 
 ## How the prompt is tokenized (LocalImageGenerator.swift)
@@ -66,6 +66,23 @@ known. The proxy uses the request's override spec for the compute-unit estimate 
 the request unchanged; the estimate matched the app's own number for that setting (39,477
 against about 39,000 shown in the app).
 
+## Qwen Image 2512 through the API
+
+The app has this model in its zoo, so a spec is only needed because Bridge Mode forwards the
+request with the override. A bare spec (name, file, version, encoders, default scale) failed
+four times in a row mid-sampling with `No images received from server`; the full zoo entry
+(`objective` `{"u": {"condition_scale": 1000}}`, `hires_fix_scale` 24, and the `mmdit` block
+with `qk_norm` and activation scaling 2 on all 60 layers for QK, projection, FFN up-projection
+and FFN) rendered at 1024x704, 1536x1024 and 1920x1280. With the app's exact settings (36 steps,
+CFG 4, shift 3.99, DPM++ 2M Trailing, no negative, 1920x1280, its seed) the API render matched
+the app's image down to fine detail (same composition, figures and textures; small changes in
+the lettering colours of a sign) but not pixel for pixel: about 5 % of the pixels are identical.
+The prompt was byte-identical and the configuration stored in both PNGs differs only in fields
+Qwen text-to-image does not use, so the cause is on the server side (the cloud's own model entry
+or run-to-run variation between machines) and not known. The model card's 50 Euler steps (DDIM
+Trailing) and 34 steps of DPM++ 2M Trailing gave practically the same image at 1536x1024 (mean
+difference 2.8 on a 0 to 255 scale at 64 px), which is why the recipe uses 34.
+
 ## Timings seen
 
 | Model | Size | Steps | Total | First step |
@@ -78,6 +95,11 @@ against about 39,000 shown in the app).
 | Ideogram 4 (q8p), CFG 7 | 1920x1280 | 32 | 198 s | 40 s |
 | Ideogram 4 (q8p), CFG 7 | 1024x704 | 20 | 52 s | 23 s |
 | the app itself, same job as the 198 s row | 1920x1280 | 32 | 185 s | 21 s (text encoding 12 s) |
+| Qwen Image 2512, CFG 4 | 1024x704 | 8 | 76 s | 53 s |
+| Qwen Image 2512, CFG 4, DDIM Trailing | 1536x1024 | 50 | 183 s | 71 s |
+| Qwen Image 2512, CFG 4, DPM++ 2M Trailing | 1536x1024 | 34 | 148 s | 23 s |
+| Qwen Image 2512, CFG 4, DPM++ 2M Trailing | 1920x1280 | 36 | 239 s | 28 s |
+| the app itself, same job as the 239 s row | 1920x1280 | 36 | 230 s | 30 s (text encoding 23 s) |
 
 No throttling across some twenty jobs in one morning. Random aborts before the first step do
 happen and are the reason for the retries. Mid-sampling drops (`No images received from server`) also happen; four in a row on one model turned out to be an incomplete spec (see SKILL.md, section 5), not the cloud.
@@ -99,6 +121,8 @@ Shortest route: export any PNG the app made with that model and run `scripts/png
 on it. The metadata names the model file exactly as the cloud expects it (the app's "Ideogram 4
 remote" is `ideogram_4_q8p.ckpt`, not the `i8x` file the download list shows) and the settings
 block gives the app's defaults. The text encoder and autoencoder still come from the model zoo.
+In the app's model list, a cloud icon with a slash through it marks a variant the cloud will not
+run; export the PNG from a variant with a plain cloud icon.
 
 1. Find the file in the `ModelZoo.swift` hash table (`*_i8x.ckpt`, `*_q8p.ckpt`); the text encoder is usually the entry right after it.
 2. Take the `version` raw value from `Sampler.swift`'s `ModelVersion` enum.

@@ -536,7 +536,12 @@ def main() -> int:
         settings["loras"].append((f, float(w or 1.0)))
 
     prompt, prompt_path = read_prompt(args.prompt_file, args.prompt)
-    negative = (Path(args.negative_file).read_text(encoding="utf-8").strip() if args.negative_file else (args.negative or "")).strip()
+    # the recipe's negative applies unless one is given; --negative "" clears it
+    if args.negative_file:
+        negative = Path(args.negative_file).read_text(encoding="utf-8")
+    else:
+        negative = args.negative if args.negative is not None else d.get("negative", "")
+    negative = negative.strip()
     if args.seeds and args.count:
         raise SystemExit("give --seeds (literal seeds) or --count (random seeds), not both")
     seeds = parse_seeds(args.seeds) if args.seeds else [random.randint(1, 2**32 - 2) for _ in range(args.count or 1)]
