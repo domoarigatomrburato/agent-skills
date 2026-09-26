@@ -218,6 +218,7 @@ Match the target the user actually has; details and request shapes are in `refer
 - **REST API**: `POST https://api.ideogram.ai/v1/ideogram-v4/generate` (multipart form) with `json_prompt` (JSON mode) **or** `text_prompt` (plain mode, magic prompt automatic), plus `resolution` and `rendering_speed`. `Api-Key` header. Never paste the key into the prompt or logs; read it from `IDEOGRAM_API_KEY`.
 - **Web app** (ideogram.ai): select model 4.0, paste the pretty JSON into the prompt box; Magic Prompt switches off automatically for JSON. For plain mode, leave Magic Prompt on.
 - **Open weights** (`ideogram-oss/ideogram4`): `python run_inference.py --no-magic-prompt --prompt '<minified json>' --height H --width W --sampler-preset V4_QUALITY_48`. Never send plain text there.
+- **Draw Things** (Ideogram 4 on Draw Things+ cloud compute): save the caption as a `.json` file and render it with the `drawthings` skill, recipe `ideogram-4`; it minifies the caption and sends it as the prompt, magic prompt never runs there. Through that API path guidance 7 only holds for captions up to about 500 Qwen tokens (JSON is token-expensive: braces, quotes and bboxes count), so either keep the caption that short or render a long one at CFG 1, which the renderer accepts with `--cfg 1 --force`.
 
 ## 5. Look, then iterate
 

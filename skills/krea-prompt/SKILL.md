@@ -202,6 +202,7 @@ request shapes, the size tables and the settings for Raw.
 - **ComfyUI**: the official Krea 2 template ships an LLM expansion toggle; turn it off when pasting a full description. 8 steps, cfg 1.0.
 - **fal**: `fal-ai/krea-2/turbo` with `enable_prompt_expansion: false` for a full description.
 - **Reference CLI**: `uv run inference.py "<prompt>" --checkpoint oss_turbo --steps 8 --cfg 0.0 --mu 1.15 --width W --height H`.
+- **Draw Things API server** (no pasting): save the prompt to a file and run it with the `drawthings` skill, recipe `krea-2-turbo`, which carries these same settings and returns the images for review.
 
 ## 6. Look, then iterate
 

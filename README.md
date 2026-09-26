@@ -11,6 +11,7 @@ required.
 | `inquisition` | Independently review correctness, test evidence, and design; fix supported issues. |
 | `ideogram-prompt` | Ideogram 4 captions: structured JSON with magic prompt off, or plain text with magic prompt on. Ships a validator that ports Ideogram's `CaptionVerifier`. |
 | `krea-prompt` | Krea 2 and Krea 2 Turbo prompts. Ships a linter that counts tokens against the 507-token prompt budget and a size calculator for 1K and 2K. |
+| `drawthings` | Render prompts through the Draw Things app's API server: model recipes (Krea 2 Turbo and Ideogram 4 on Draw Things+ cloud compute, or local models), seed sets, retries, PNGs with a run log and a contact sheet. |
 
 ## Development workflow
 
@@ -59,12 +60,29 @@ finds them on every run; `--tokenizer DIR` or `KREA_TOKENIZER_DIR` point at anot
 Without them the linter falls back to a word-based estimate calibrated on Krea's example
 prompts, within about 7% of the true count. The scripts are standard-library Python 3.8+.
 
+## Rendering with Draw Things
+
+The `drawthings` skill sends prompts to the Draw Things app's API server (gRPC, TLS) and, with
+Bridge Mode on, to Draw Things+ cloud compute, so cloud-only models such as Krea 2 Turbo and
+Ideogram 4 render without local downloads. It builds on the `drawthings-py` SDK and adds the
+model spec override those models need. One-time setup creates a private virtualenv:
+
+```bash
+bash skills/drawthings/scripts/setup.sh
+python3 skills/drawthings/scripts/dt_render.py --check
+```
+
+Each run writes the PNGs, the exact prompt, a `run.json` and a contact sheet to its folder and
+can append a line per image to a project's `runs.jsonl`; the cloud's random aborts are retried. Before
+sending, it estimates the request's compute units with the app's own formula and refuses jobs
+over the tier limit, so a 48-step 2K Ideogram job is stopped locally instead of by the cloud.
+
 ## Install
 
 Install from the published GitHub repository for local Cursor, Codex, and Claude:
 
 ```bash
-npx skills@latest add domoarigatomrburato/agent-skills -g --skill grilling domain-modeling inquisition ideogram-prompt krea-prompt --agent universal claude-code -y
+npx skills@latest add domoarigatomrburato/agent-skills -g --skill grilling domain-modeling inquisition ideogram-prompt krea-prompt drawthings --agent universal claude-code -y
 ```
 
 Universal installs to the shared global directory used by Cursor and Codex;
@@ -103,6 +121,11 @@ The prompting skills quote their official sources in their `references` folders:
   public docs and API reference.
 - [Qwen/Qwen3-VL-4B-Instruct](https://huggingface.co/Qwen/Qwen3-VL-4B-Instruct) (Apache-2.0):
   tokenizer files, downloaded on demand and not included here.
+
+The Draw Things skill depends at run time on [kcjerrell/drawthings-py](https://github.com/kcjerrell/drawthings-py)
+(GPL-3.0, installed from PyPI into its own virtualenv, no code copied here) and documents the
+protocol of [drawthingsai/draw-things-community](https://github.com/drawthingsai/draw-things-community)
+(GPL-3.0) in its references.
 
 The `.claude-plugin/plugin.json` manifest groups the skills under
 `DomoArigatoMrBurato-skills` in compatible hosts.
