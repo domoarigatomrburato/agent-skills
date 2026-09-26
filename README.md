@@ -61,24 +61,30 @@ prompts, within about 7% of the true count. The scripts are standard-library Pyt
 
 ## Install
 
-Installed skills always come from the local clone, so what the agents run is the working copy:
+Install from the published GitHub repository for local Cursor, Codex, and Claude:
 
 ```bash
-git clone git@github.com:domoarigatomrburato/agent-skills.git ~/coding/personal/agent-skills
-npx skills@latest add ~/coding/personal/agent-skills -g --skill grilling domain-modeling inquisition ideogram-prompt krea-prompt --agent universal claude-code -y
+npx skills@latest add domoarigatomrburato/agent-skills -g --skill grilling domain-modeling inquisition ideogram-prompt krea-prompt --agent universal claude-code -y
 ```
 
-Universal installs to the shared global directory used by Cursor and Codex; Claude Code
-receives links to the same files. A local-path install is a copy, so after editing a skill,
-rerun the command to refresh it. Inspect installations with `npx skills@latest list -g`;
-remove a named skill with `npx skills@latest remove <skill-name> -g -y`. Removing a skill from
-this repo does not uninstall an existing global copy.
+Universal installs to the shared global directory used by Cursor and Codex;
+Claude Code receives links to the same files. Remote agents need their own
+installation. After publishing skill changes, rerun the command to refresh them.
+Removing a skill from this repo does not uninstall an existing global copy;
+remove retired skills explicitly with the CLI.
 
-For development, inspect the working copy without changing global installs:
+Inspect installations with `npx skills@latest list -g`; remove a named skill with
+`npx skills@latest remove <skill-name> -g -y`.
+
+For development, inspect a working copy without changing global installs:
 
 ```bash
 npx skills@latest add . --list
 ```
+
+Normal installations should track GitHub. If intentionally switching an existing
+remote installation to a local source, remove the old named installation first:
+Skills CLI 1.5.25 can retain its upstream tracking record during a local overwrite.
 
 ## Attribution
 
