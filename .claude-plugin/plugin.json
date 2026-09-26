@@ -1,0 +1,10 @@
+{
+  "name": "DomoArigatoMrBurato-skills",
+  "skills": [
+    "./skills/grilling",
+    "./skills/domain-modeling",
+    "./skills/inquisition",
+    "./skills/ideogram-prompt",
+    "./skills/krea-prompt"
+  ]
+}
