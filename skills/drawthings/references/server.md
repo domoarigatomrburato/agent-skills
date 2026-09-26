@@ -56,8 +56,12 @@ CFG 7; 781 tokens were blown out. Setting `zeroNegativePrompt`, `padded_text_enc
 1024 or 2048, removing hex palettes and line breaks, or adding an `aspect_ratio` key changed
 nothing. Outputs for identical (prompt, seed, settings) came back byte-identical across those
 variants, so either the flags are ignored on the cloud path or results are cached by prompt
-and seed; a fresh seed with `zeroNegativePrompt` still gave noise. The proxy uses the request's
-override spec for the compute-unit estimate and forwards the request unchanged.
+and seed; a fresh seed with `zeroNegativePrompt` still gave noise, and 20 steps instead of 8 changed
+nothing either. The app, with "Ideogram 4 remote" selected and Expand Prompt to JSON off,
+renders the same captions cleanly at guidance 7, so the difference is in what the app sends:
+its settings for that model (steps, guidance, negative prompt, shift, sampler) and the cloud
+model's full specification are the open leads. The proxy uses the request's override spec for
+the compute-unit estimate and forwards the request unchanged.
 
 ## Timings seen
 

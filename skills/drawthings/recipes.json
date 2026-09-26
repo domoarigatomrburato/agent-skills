@@ -47,7 +47,7 @@
       "size": "2048x1344"
     },
     "prompt_skill": "ideogram-prompt",
-    "notes": "Prompt is a JSON caption (ideogram-prompt skill); pass the .json file and it is minified before sending. Verified 2026-09-26 through Bridge Mode at 1024x704 and 2048x1344 (about 100 to 150 s at 8 steps). Guidance 7 works for captions up to about 500 Qwen tokens (the renderer counts them); above that the guided branch degrades and past 1000 tokens the image is noise, while the same caption at CFG 1 renders cleanly and at CFG 3 comes out posterized. Ideogram's own presets run 20 steps (default) or 48 (quality); 8 steps look over-baked. The app's own path may differ: with its Expand Prompt to JSON feature on, a local LLM rewrites captions into a compact JSON before sending.",
+    "notes": "Prompt is a JSON caption (ideogram-prompt skill); pass the .json file and it is minified before sending. Verified 2026-09-26 through Bridge Mode at 1024x704 and 2048x1344 (about 100 to 150 s at 8 steps). Guidance 7 works for captions up to about 500 Qwen tokens (the renderer counts them); above that the guided branch degrades and past 1000 tokens the image is noise, while the same caption at CFG 1 renders cleanly and at CFG 3 comes out posterized. Ideogram's own presets run 20 steps (default) or 48 (quality); 8 steps look over-baked. The app renders the same long captions cleanly at guidance 7 (Ideogram 4 remote, Expand Prompt to JSON off), so the ceiling belongs to this API path and is not yet explained; it is not a property of the model.",
     "prompt_max_tokens": 500,
     "prompt_max_tokens_note": "through the API, guidance 7 breaks down as the caption grows: fine to about 500 Qwen tokens, posterized at 3, garbage above 1000; long captions render well with --cfg 1"
   }
