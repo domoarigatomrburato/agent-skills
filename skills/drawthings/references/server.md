@@ -50,18 +50,21 @@ With CFG on, the encoder builds the transformer's text as `negative tokens + cap
 one sequence unless `zeroNegativePrompt` is set *and* the checkpoint carries the separate
 unconditional transformer (`__unconditional_dit__` tensors), in which case the caption alone goes
 to the conditional model and the unconditional model takes no text, as in the open weights.
-Observed through the API at 1024x704, 8 steps, the 1,309-token Observer caption: CFG 1 clean,
-CFG 3 posterized, CFG 7 noise; a 145-token caption and a 513-token plain prompt were fine at
-CFG 7; 781 tokens were blown out. Setting `zeroNegativePrompt`, `padded_text_encoding_length`
-1024 or 2048, removing hex palettes and line breaks, or adding an `aspect_ratio` key changed
-nothing. Outputs for identical (prompt, seed, settings) came back byte-identical across those
-variants, so either the flags are ignored on the cloud path or results are cached by prompt
-and seed; a fresh seed with `zeroNegativePrompt` still gave noise, and 20 steps instead of 8 changed
-nothing either. The app, with "Ideogram 4 remote" selected and Expand Prompt to JSON off,
-renders the same captions cleanly at guidance 7, so the difference is in what the app sends:
-its settings for that model (steps, guidance, negative prompt, shift, sampler) and the cloud
-model's full specification are the open leads. The proxy uses the request's override spec for
-the compute-unit estimate and forwards the request unchanged.
+What the cloud does with a long caption depends on the model file, not on the flags. With
+`ideogram_4_i8x.ckpt`, observed at 1024x704 with the 1,309-token Observer caption: CFG 1
+clean, CFG 3 posterized, CFG 7 noise at 8 and at 20 steps; a 145-token caption and a 513-token
+plain prompt were fine at CFG 7; 781 tokens were blown out. `zeroNegativePrompt`,
+`padded_text_encoding_length` 1024 or 2048, removing hex palettes and line breaks, or adding an
+`aspect_ratio` key changed nothing, and identical (prompt, seed, settings) came back
+byte-identical across those variants. With `ideogram_4_q8p.ckpt`, the file the app's "Ideogram 4
+remote" uses (read from the metadata of a PNG the app exported), the same caption renders
+cleanly at CFG 7 with zero negative prompt on or off, and the app's exact settings (32 steps,
+shift 2.99, DPM++ 2M Trailing, zero negative on, 1920x1280, its seed) reproduced the app's image
+pixel for pixel through the API. So the i8x file is the one whose guided branch collapses on
+long text; whether it lacks the unconditional transformer or is an older conversion is not
+known. The proxy uses the request's override spec for the compute-unit estimate and forwards
+the request unchanged; the estimate matched the app's own number for that setting (39,477
+against about 39,000 shown in the app).
 
 ## Timings seen
 
@@ -72,11 +75,19 @@ the compute-unit estimate and forwards the request unchanged.
 | Ideogram 4 | 1024x704 | 8 | 103 to 124 s | 48 to 58 s |
 | Ideogram 4 | 2048x1344 | 8 | 144 s | 67 s |
 | Ideogram 4, CFG 1 | 1024x704 | 8 | 91 s | 51 s |
+| Ideogram 4 (q8p), CFG 7 | 1920x1280 | 32 | 198 s | 40 s |
+| Ideogram 4 (q8p), CFG 7 | 1024x704 | 20 | 52 s | 23 s |
+| the app itself, same job as the 198 s row | 1920x1280 | 32 | 185 s | 21 s (text encoding 12 s) |
 
 No throttling across some twenty jobs in one morning. Random aborts before the first step do
 happen and are the reason for the retries.
 
 ## Deriving a spec for a new cloud model
+
+Shortest route: export any PNG the app made with that model and run `scripts/png_config.py`
+on it. The metadata names the model file exactly as the cloud expects it (the app's "Ideogram 4
+remote" is `ideogram_4_q8p.ckpt`, not the `i8x` file the download list shows) and the settings
+block gives the app's defaults. The text encoder and autoencoder still come from the model zoo.
 
 1. Find the file in the `ModelZoo.swift` hash table (`*_i8x.ckpt`, `*_q8p.ckpt`); the text encoder is usually the entry right after it.
 2. Take the `version` raw value from `Sampler.swift`'s `ModelVersion` enum.

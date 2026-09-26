@@ -15,6 +15,7 @@ because the app does not list them. Files, relative to this skill's folder:
 - `scripts/dt_render.py` — the renderer: recipe or custom spec, prompt file, seed set, retries, PNGs, `run.json`, `runs.jsonl` line per image, contact sheet.
 - `scripts/setup.sh` — one-time virtualenv with the SDK (`~/.cache/drawthings-skill/venv`).
 - `scripts/compute_units.py` — the app's compute-unit formula, ported from `ComputeUnits.swift`; the renderer runs it before every job.
+- `scripts/png_config.py` — prints the settings and prompt stored in any Draw Things PNG (the app's exports or this renderer's) and the command that reproduces it.
 - `recipes.json` — verified model specs and their default settings.
 - `references/server.md` — protocol facts, timings, how to derive a spec for a new cloud model, SDK notes.
 
@@ -53,7 +54,7 @@ python3 scripts/dt_render.py --recipe krea-2-turbo --prompt-file prompts/krea-2-
 - A `.json` prompt file is validated and minified before sending; a `.txt` file is sent as is. `--negative-file` adds a negative prompt where the model uses one (Turbo ignores it).
 - `--out` gets `<name>-s<seed>.png` (with Draw Things metadata inside the PNG), a copy of the exact prompt, `run.json` with everything, and `<name>-sheet.jpg` when at least two images succeeded. `--name` sets the base name (default: the prompt file's stem).
 - `--log` appends one JSON line per image: settings, seed, timing, prompt hash and file, status, your `--note`. Keep one `runs.jsonl` per project so a whole project's history is one file.
-- Expect 15 to 60 s before the first sampling step and 90 to 150 s per 2K image on the cloud. A round of four seeds is six to ten minutes; run it in the background and poll the output.
+- Expect 15 to 60 s before the first sampling step and 90 to 200 s per 2K image on the cloud (Ideogram at 32 steps is the slow end). A round of four seeds is six to twelve minutes; run it in the background and poll the output.
 
 Change one thing per round, say what in `--note`, and keep the note in the project's
 `notes.md` when the round taught something.
@@ -71,13 +72,14 @@ CFG is on (guidance above 1). Reference points for the recipes:
 | Recipe | Size | Steps | Units |
 |---|---|---|---|
 | krea-2-turbo | 2048x1344 | 8 | about 7,300 |
-| ideogram-4 | 2048x1344 | 20 | about 28,300 |
-| ideogram-4 | 2048x1344 | 48 | about 68,000: over the limit |
+| ideogram-4 | 1920x1280 | 32 | about 39,500: the recipe default, just under |
+| ideogram-4 | 2048x1344 | 20 | about 28,300 (28 steps: about 39,700) |
+| ideogram-4 | 2048x1344 | 32 | about 45,300: over the limit |
 | ideogram-4 | 2048x2048 | 20 | about 48,700: over the limit |
 
 `--estimate-only` prints the number without connecting; `--tier community` applies the lower
 limit; `DRAWTHINGS_TIER` sets the default. The formula is upstream's, with a calibration
-constant they tuned on FLUX; treat a result within a few percent of the limit as over it.
+constant they tuned on FLUX; treat a result within a few percent of the limit as over it. Checked against the app once: for 1920x1280 at 32 steps with guidance 7 the app showed about 39,000 and the formula gives 39,477.
 
 ## 3. Recipes
 
@@ -86,7 +88,7 @@ constant they tuned on FLUX; treat a result within a few percent of the limit as
 | Recipe | Model file | Defaults | Prompt |
 |---|---|---|---|
 | `krea-2-turbo` | `krea_2_turbo_i8x.ckpt` (cloud) | 8 steps, CFG 1.0, shift 3.16, DDIM Trailing, 2048x1344 | plain text from `krea-prompt` |
-| `ideogram-4` | `ideogram_4_i8x.ckpt` (cloud) | 20 steps, CFG 7, shift 3.25, DPM++ 2M Trailing, 2048x1344 | JSON caption from `ideogram-prompt`, at most about 500 tokens at CFG 7 (see section 5) |
+| `ideogram-4` | `ideogram_4_q8p.ckpt` (cloud) | 32 steps, CFG 7, shift 2.99, DPM++ 2M Trailing, zero negative prompt on, 1920x1280: the app's own settings for "Ideogram 4 remote" | JSON caption from `ideogram-prompt`, up to 2,000 tokens |
 
 A model the app already has locally needs no recipe: `--spec` with a file holding the entry
 from `--check`'s list (name, file, version, text encoder, autoencoder, default scale) works,
@@ -114,7 +116,7 @@ prompt placed, rendered text, the light, the style label. Then:
 - With Bridge Mode on, every job goes to the cloud: local community checkpoints fail through it. Turn Bridge Mode off to render local models, on for the cloud recipes.
 - One job at a time. Do not run two `dt_render.py` at once against one server.
 - A cloud model that is `not local` with Bridge Mode off returns a download request instead of an image; the script reports it as an error.
-- **Ideogram 4 and caption length.** Through the API, guidance above 1 runs the negative prompt concatenated with the caption through the conditional transformer (the source's fallback path), and that breaks down as the caption grows: at CFG 7 captions up to about 500 Qwen tokens render well, 800 come out blown out, 1,000 and more are noise; the same 1,300-token caption renders cleanly at CFG 1 and posterized at CFG 3. The renderer counts the tokens and refuses a caption over the recipe's `prompt_max_tokens` (500) unless `--force`; for a long caption pass `--cfg 1` (good, photographic) rather than trimming blindly. The `padded_text_encoding_length` spec field and the `--zero-negative` flag changed nothing in these tests. The app itself, with "Ideogram 4 remote" selected and Expand Prompt to JSON off, renders the same long captions cleanly at guidance 7, so it sends something this path does not; until that difference is found (its settings for the cloud model, or the cloud model's full specification), treat the 500-token ceiling as a fact about this API path, not about the model.
+- **Ideogram 4 needs the `q8p` model file.** With `ideogram_4_i8x.ckpt` in the spec, guidance above 1 breaks down as the caption grows: at CFG 7 captions up to about 500 Qwen tokens render, 800 come out blown out, 1,000 and more are noise, while CFG 1 stays clean. With `ideogram_4_q8p.ckpt`, the file behind the app's "Ideogram 4 remote", a 1,309-token caption renders cleanly at CFG 7 with or without zero negative prompt, and the app's own image is reproduced pixel for pixel from its seed and settings. The recipe carries the q8p file; if a render ever shows that pattern again (short captions fine, long ones noise), check the model file before anything else.
 - `--timeout` (900 s per image) covers 48-step 2K jobs; raise it for video or larger batches.
 - Local LoRAs (`--lora file.ckpt:0.8`) are passed through the configuration and work for local models; the cloud has no access to local LoRA files, so do not expect them on cloud recipes.
 
@@ -125,3 +127,11 @@ and the prompt file with its SHA-256; `run.json` in the run folder holds the pro
 itself. To reproduce: same recipe, `--prompt-file` at the commit whose hash matches,
 `--seeds <seed>`. The cloud is deterministic for a given seed and settings in practice, but
 the model files behind a recipe can be updated upstream, so keep the keeper.
+
+The app stores the same information in every PNG it exports: an XMP block with the prompt,
+the negative prompt, the model file, size, steps, guidance, shift, sampler, seed and every
+configuration flag. `python3 scripts/png_config.py image.png` prints it, `--prompt-out
+caption.json` saves the prompt, and the last line is the `dt_render.py` command that
+reproduces the image. That is how the app's own settings for a cloud model are read, since
+macOS keeps other processes out of the app's container and its database; a render made this
+way from the app's seed matched the app's image pixel for pixel.

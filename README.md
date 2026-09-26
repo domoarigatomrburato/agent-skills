@@ -76,6 +76,8 @@ Each run writes the PNGs, the exact prompt, a `run.json` and a contact sheet to 
 can append a line per image to a project's `runs.jsonl`; the cloud's random aborts are retried. Before
 sending, it estimates the request's compute units with the app's own formula and refuses jobs
 over the tier limit, so a 48-step 2K Ideogram job is stopped locally instead of by the cloud.
+`png_config.py` reads the settings and prompt out of any Draw Things PNG, the app's own exports
+included, and prints the command that reproduces the image.
 
 ## Install
 

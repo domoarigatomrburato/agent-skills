@@ -374,7 +374,7 @@ def main() -> int:
           f"{settings['sampler']} | {len(prompt.split())} words, {tokens} tokens ({'exact' if exact else 'estimate'}) | seeds {seeds}")
     max_tokens = recipe.get("prompt_max_tokens")
     if max_tokens and tokens > max_tokens:
-        print(f"prompt is {tokens} tokens; this recipe degrades above {max_tokens} ({recipe.get('prompt_max_tokens_note', '')})",
+        print(f"prompt is {tokens} tokens; this recipe's limit is {max_tokens} ({recipe.get('prompt_max_tokens_note', '')})",
               file=sys.stderr)
         if not args.force and not args.estimate_only:
             print("shorten the prompt, or pass --force to send anyway", file=sys.stderr)
