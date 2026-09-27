@@ -11,6 +11,7 @@ Examples:
   dt_render.py --recipe krea-2-turbo --prompt-file prompt.txt --count 4 --out renders/r1
   dt_render.py --recipe ideogram-4 --prompt-file caption.json --size 2048x1344 --seeds 12345 --out renders/r2 --log runs.jsonl
   dt_render.py --spec my-model.json --prompt "a red apple" --out renders/r3
+  dt_render.py --config image.config.json --out renders/repro
 """
 from __future__ import annotations
 
@@ -43,6 +44,7 @@ _bootstrap()
 
 import argparse  # noqa: E402
 import asyncio  # noqa: E402
+import copy  # noqa: E402
 import hashlib  # noqa: E402
 import json  # noqa: E402
 import math  # noqa: E402
@@ -54,6 +56,8 @@ from datetime import datetime, timezone  # noqa: E402
 
 import drawthings_py.grpc.grpc_service as _grpc_service  # noqa: E402
 from drawthings_py import Configs, DrawThings, RequestBuilder  # noqa: E402
+from drawthings_py.configs.config_prop import load_props  # noqa: E402
+from drawthings_py.configs.enums import sampler_type_to_int, seed_mode_to_int  # noqa: E402
 from drawthings_py.generated.dt_grpc import image_service  # noqa: E402
 from drawthings_py.request_builder import build_grpc_message as _sdk_build  # noqa: E402
 
@@ -128,6 +132,114 @@ def load_recipes() -> dict:
     if not RECIPES_PATH.exists():
         return {}
     return json.loads(RECIPES_PATH.read_text(encoding="utf-8"))
+
+
+def _camel(name: str) -> str:
+    head, *tail = name.split("_")
+    return head + "".join(part[:1].upper() + part[1:] for part in tail)
+
+
+def config_dict_from_app(data: dict) -> dict:
+    """Map Copy Configuration JSON to the SDK without dropping false or zero.
+
+    drawthings-py 0.4's public ``from_json`` uses a truthiness test, so values such as
+    ``resolutionDependentShift: false`` disappear and fall back to SDK defaults.  Use the
+    same property table one property at a time and keep every value except ``None``.  A few
+    scripting-schema names are camelCase even where the SDK table only lists snake_case, so
+    offer that alias too.
+    """
+    result = {}
+    for prop in load_props().values():
+        value = prop.from_json(data)
+        if value is None:
+            alias = _camel(prop.name)
+            if alias in data:
+                value = prop.from_json({prop.name: data[alias]})
+        if value is not None:
+            result[prop.name] = value
+    return result
+
+
+def load_config_recipe(path: str) -> dict:
+    """Read bare Copy Configuration JSON, an app preset, or this skill's recipe format."""
+    source = sys.stdin.read() if path == "-" else Path(path).read_text(encoding="utf-8")
+    try:
+        document = json.loads(source)
+    except json.JSONDecodeError as e:
+        where = "stdin" if path == "-" else path
+        raise SystemExit(f"{where} is not valid JSON: {e}")
+    if not isinstance(document, dict):
+        raise SystemExit("--config JSON must be an object")
+    if "configuration" in document:
+        raw = document["configuration"]
+        if not isinstance(raw, dict):
+            raise SystemExit("--config field 'configuration' must be an object")
+        prompt = document.get("prompt")
+        negative = document.get("negative")
+        name = document.get("name")
+    else:
+        raw, prompt, negative, name = document, None, None, None
+    if prompt is not None and not isinstance(prompt, str):
+        raise SystemExit("--config field 'prompt' must be a string")
+    if negative is not None and not isinstance(negative, str):
+        raise SystemExit("--config field 'negative' must be a string")
+    return {
+        "path": None if path == "-" else path,
+        "name": name if isinstance(name, str) else None,
+        "prompt": prompt,
+        "negative": negative,
+        "raw": raw,
+        "sdk": config_dict_from_app(raw),
+    }
+
+
+def recipe_for_model(recipes: dict, model: str) -> tuple[str, dict] | None:
+    for key, recipe in recipes.items():
+        if recipe.get("spec", {}).get("file") == model:
+            return key, recipe
+    return None
+
+
+def app_configuration(raw: dict, config: dict, seed: int) -> dict:
+    """Return pasteable app JSON, preserving source-only fields and applying actual settings."""
+    out = copy.deepcopy(raw)
+    # These are the generation values this renderer can intentionally select or override.
+    values = {
+        "model": config.get("model"),
+        "width": config.get("width"),
+        "height": config.get("height"),
+        "seed": seed,
+        "steps": config.get("steps"),
+        "guidanceScale": config.get("guidance"),
+        "strength": config.get("strength"),
+        "sampler": sampler_type_to_int(config.get("sampler")),
+        "shift": config.get("shift"),
+        "resolutionDependentShift": config.get("resolution_dependent_shift"),
+        "batchCount": config.get("batch_count"),
+        "batchSize": config.get("batch_size"),
+        "seedMode": seed_mode_to_int(config.get("seed_mode")),
+        "tiledDecoding": config.get("tiled_decoding"),
+        "zeroNegativePrompt": config.get("zero_negative_prompt"),
+        "loras": config.get("loras"),
+        "controls": config.get("controls"),
+    }
+    for key, value in values.items():
+        if value is not None:
+            out[key] = value
+    return out
+
+
+def write_config_recipe(path: Path, name: str, prompt: str, negative: str,
+                        raw: dict, config: dict, seed: int) -> None:
+    document = {
+        "name": name,
+        "prompt": prompt,
+        "negative": negative,
+        "configuration": app_configuration(raw, config, seed),
+    }
+    tmp = path.with_name(path.name + ".part")
+    tmp.write_text(json.dumps(document, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
+    tmp.replace(path)
 
 
 def read_prompt(path: str | None, inline: str | None) -> tuple[str, str | None]:
@@ -278,8 +390,9 @@ def report(entry: dict) -> None:
         print(f"  seed {seed}: gave up after {entry['attempts']} attempts: {entry['error']}")
 
 
-async def render_all(args, spec: dict, settings: dict, prompt: str, negative: str, seeds: list[int],
-                     out_dir: Path, name: str, done: dict[int, dict], save, state: dict) -> list[dict]:
+async def render_all(args, spec: dict, settings: dict, config_base: dict, config_recipe: dict,
+                     prompt: str, negative: str, seeds: list[int], out_dir: Path, name: str,
+                     done: dict[int, dict], save, state: dict) -> list[dict]:
     """Render every seed not in `done`; `save(entries)` runs after each seed so a crash loses nothing."""
     entries: dict[int, dict] = {s: done[s] for s in seeds if s in done}
     for e in entries.values():
@@ -298,7 +411,8 @@ async def render_all(args, spec: dict, settings: dict, prompt: str, negative: st
                 await nap(args.pass_wait, out_dir)
             for seed in todo:
                 previous = entries.get(seed)
-                entry = await render_one(args, spec, settings, prompt, negative, seed, out_dir, name, state)
+                entry = await render_one(args, spec, settings, config_base, config_recipe,
+                                         prompt, negative, seed, out_dir, name, state)
                 if previous:  # keep the attempt history of earlier passes
                     entry["history"] = previous.get("history", []) + entry["history"]
                     entry["attempts"] = len(entry["history"])
@@ -337,16 +451,11 @@ async def attempt_once(args, rb: RequestBuilder, progress: dict, out_dir: Path):
                 await asyncio.wait({task}, timeout=5)
 
 
-async def render_one(args, spec, settings, prompt, negative, seed, out_dir: Path, name: str, state: dict) -> dict:
-    config = Configs.create(
-        model=spec["file"], width=settings["width"], height=settings["height"], steps=settings["steps"],
-        guidance=settings["cfg"], shift=settings["shift"], sampler=settings["sampler"], seed=seed,
-        seed_mode="ScaleAlike", strength=1.0, batch_count=1, batch_size=1,
-        resolution_dependent_shift=settings["resolution_dependent_shift"], tiled_decoding=settings["tiled_decode"],
-        zero_negative_prompt=settings["zero_negative"],
-    )
-    if settings.get("loras"):
-        config["loras"] = [{"file": f, "weight": w} for f, w in settings["loras"]]
+async def render_one(args, spec, settings, config_base, config_recipe, prompt, negative, seed,
+                     out_dir: Path, name: str, state: dict) -> dict:
+    job_config = copy.deepcopy(config_base)
+    job_config["seed"] = seed
+    config = Configs.create(job_config)
     rb = RequestBuilder(config, prompt, negative or None)
     rb.model_spec = spec  # picked up by _build_with_override
     progress: dict = {}
@@ -364,6 +473,7 @@ async def render_one(args, spec, settings, prompt, negative, seed, out_dir: Path
         rb._on_progress = on_progress  # noqa: SLF001
 
     file = out_dir / f"{name}-s{seed}.png"
+    config_file = file.with_suffix(".config.json")
     part = out_dir / f"{name}-s{seed}.part.png"  # PIL picks the format from the extension
     attempts = args.retries + 1
     history: list[dict] = []
@@ -373,6 +483,7 @@ async def render_one(args, spec, settings, prompt, negative, seed, out_dir: Path
         last = history[-1] if history else {}
         return {"seed": seed, "status": status, "seconds": last.get("seconds"),
                 "first_step_seconds": last.get("first_step_seconds"), "file": str(file) if status == "ok" else None,
+                "config_file": str(config_file) if status == "ok" else None,
                 "attempts": len(history), "error": None if status == "ok" else error, "history": history}
 
     for attempt in range(1, attempts + 1):
@@ -390,6 +501,8 @@ async def render_one(args, spec, settings, prompt, negative, seed, out_dir: Path
             problem = image_problem(part, settings["width"], settings["height"])
             if problem:
                 raise RuntimeError(problem)
+            write_config_recipe(config_file, config_recipe["name"], prompt, negative,
+                                config_recipe["raw"], job_config, seed)
             part.replace(file)
             history.append({"attempt": attempt, "error": None, "seconds": round(time.monotonic() - progress["t0"], 1),
                             "first_step_seconds": progress.get("first"), "last_step": progress.get("step")})
@@ -450,6 +563,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--recipe", help="name from recipes.json")
     ap.add_argument("--spec", help="JSON file with a Draw Things model spec (and optional 'defaults')")
+    ap.add_argument("--config", help="Copy Configuration JSON, app preset, or recipe file; '-' reads stdin")
     ap.add_argument("--prompt-file", help="prompt text file, or a .json caption (minified before sending)")
     ap.add_argument("--prompt", help="inline prompt (instead of --prompt-file)")
     ap.add_argument("--negative-file"); ap.add_argument("--negative", default=None)
@@ -457,8 +571,11 @@ def main() -> int:
     ap.add_argument("--seeds", help="literal seeds: 12345 or 12345,777 (never a count)")
     ap.add_argument("--count", type=int, help="draw this many random seeds (default 1 when --seeds is not given)")
     ap.add_argument("--steps", type=int); ap.add_argument("--cfg", type=float); ap.add_argument("--shift", type=float)
-    ap.add_argument("--sampler"); ap.add_argument("--resolution-dependent-shift", action="store_true")
-    ap.add_argument("--tiled-decode", action="store_true")
+    ap.add_argument("--sampler")
+    ap.add_argument("--resolution-dependent-shift", dest="resolution_dependent_shift", action="store_true", default=None)
+    ap.add_argument("--no-resolution-dependent-shift", dest="resolution_dependent_shift", action="store_false")
+    ap.add_argument("--tiled-decode", dest="tiled_decode", action="store_true", default=None)
+    ap.add_argument("--no-tiled-decode", dest="tiled_decode", action="store_false")
     ap.add_argument("--zero-negative", dest="zero_negative", action="store_true", default=None,
                     help="zero negative prompt: the model's own unconditional branch under CFG (Ideogram 4 needs it)")
     ap.add_argument("--no-zero-negative", dest="zero_negative", action="store_false")
@@ -506,7 +623,10 @@ def main() -> int:
     if args.check:
         return asyncio.run(check(args, recipes))
 
-    # resolve spec and defaults
+    config_input = load_config_recipe(args.config) if args.config else None
+
+    # Resolve the model spec. With --config alone, its model file selects the recipe.
+    recipe_key = args.recipe
     if args.recipe:
         if args.recipe not in recipes:
             raise SystemExit(f"unknown recipe {args.recipe!r}; try --list-recipes")
@@ -515,46 +635,105 @@ def main() -> int:
         recipe = json.loads(Path(args.spec).read_text(encoding="utf-8"))
         if "spec" not in recipe:  # a bare spec file
             recipe = {"spec": recipe, "defaults": {}}
+    elif config_input:
+        model = config_input["sdk"].get("model") or config_input["raw"].get("model")
+        if not model:
+            raise SystemExit("--config has no model; give --recipe NAME or --spec FILE")
+        matched = recipe_for_model(recipes, str(model))
+        if not matched:
+            raise SystemExit(f"no recipe carries model {model!r}; derive its spec first, then give --spec FILE")
+        recipe_key, recipe = matched
     else:
-        raise SystemExit("give --recipe NAME or --spec FILE")
+        raise SystemExit("give --recipe NAME, --spec FILE, or --config FILE")
     spec = recipe["spec"]
     d = recipe.get("defaults", {})
-    width, height = parse_size(args.size or d.get("size") or "1024x1024")
+
+    base = copy.deepcopy(config_input["sdk"] if config_input else {})
+    if args.size:
+        width, height = parse_size(args.size)
+    elif base.get("width") is not None and base.get("height") is not None:
+        width, height = parse_size(f"{base['width']}x{base['height']}")
+    else:
+        width, height = parse_size(d.get("size") or "1024x1024")
+    steps = args.steps if args.steps is not None else int(base.get("steps", d.get("steps", 20)))
+    cfg = args.cfg if args.cfg is not None else float(base.get("guidance", d.get("cfg", 1.0)))
+    shift = args.shift if args.shift is not None else float(base.get("shift", d.get("shift", 1.0)))
+    sampler = normalize_sampler(args.sampler or base.get("sampler") or d.get("sampler", "EulerATrailing"))
+    rds = (args.resolution_dependent_shift if args.resolution_dependent_shift is not None
+           else bool(base.get("resolution_dependent_shift", d.get("resolution_dependent_shift", False))))
+    tiled_decode = (args.tiled_decode if args.tiled_decode is not None
+                    else bool(base.get("tiled_decoding", d.get("tiled_decode", False))))
+    zero_negative = (args.zero_negative if args.zero_negative is not None
+                     else bool(base.get("zero_negative_prompt", d.get("zero_negative_prompt", False))))
+
+    loras = copy.deepcopy(base.get("loras", []))
+    if args.lora:  # explicit CLI LoRAs replace the file's list
+        loras = []
+        for item in args.lora:
+            f, _, weight = item.partition(":")
+            loras.append({"file": f, "weight": float(weight or 1.0), "mode": "All"})
+
+    base.update({
+        "model": spec["file"], "width": width, "height": height, "steps": steps,
+        "guidance": cfg, "shift": shift, "sampler": sampler,
+        "resolution_dependent_shift": rds, "tiled_decoding": tiled_decode,
+        "zero_negative_prompt": zero_negative, "loras": loras,
+    })
+    base.setdefault("seed_mode", "ScaleAlike")
+    base.setdefault("strength", 1.0)
+    base.setdefault("batch_count", 1)
+    base.setdefault("batch_size", 1)
+    base.setdefault("controls", [])
+    if base["batch_count"] != 1 or base["batch_size"] != 1:
+        raise SystemExit("--config batchCount and batchSize must both be 1; this renderer saves one image per seed")
+
     settings = {
         "width": width, "height": height,
-        "steps": args.steps if args.steps is not None else int(d.get("steps", 20)),
-        "cfg": args.cfg if args.cfg is not None else float(d.get("cfg", 1.0)),
-        "shift": args.shift if args.shift is not None else float(d.get("shift", 1.0)),
-        "sampler": normalize_sampler(args.sampler or d.get("sampler", "EulerATrailing")),
-        "resolution_dependent_shift": bool(args.resolution_dependent_shift or d.get("resolution_dependent_shift", False)),
-        "tiled_decode": bool(args.tiled_decode or d.get("tiled_decode", False)),
-        "zero_negative": bool(d.get("zero_negative_prompt", False) if args.zero_negative is None else args.zero_negative),
-        "loras": [],
+        "steps": steps, "cfg": cfg, "shift": shift, "sampler": sampler,
+        "resolution_dependent_shift": rds, "tiled_decode": tiled_decode,
+        "zero_negative": zero_negative,
+        "loras": [(item.get("file"), item.get("weight", 1.0)) for item in loras],
     }
-    for item in args.lora:
-        f, _, w = item.partition(":")
-        settings["loras"].append((f, float(w or 1.0)))
 
-    prompt, prompt_path = read_prompt(args.prompt_file, args.prompt)
-    # the recipe's negative applies unless one is given; --negative "" clears it
+    if args.prompt_file or args.prompt is not None:
+        prompt, prompt_path = read_prompt(args.prompt_file, args.prompt)
+    elif config_input and config_input["prompt"] is not None:
+        prompt, prompt_path = config_input["prompt"], config_input["path"]
+    else:
+        raise SystemExit("give --prompt-file or --prompt, or use a --config recipe with a prompt")
+    # CLI wins, then the config recipe, then the model recipe default. --negative "" clears it.
     if args.negative_file:
         negative = Path(args.negative_file).read_text(encoding="utf-8")
     else:
-        negative = args.negative if args.negative is not None else d.get("negative", "")
+        negative = (args.negative if args.negative is not None else
+                    config_input["negative"] if config_input and config_input["negative"] is not None else
+                    d.get("negative", ""))
     negative = negative.strip()
     if args.seeds and args.count:
         raise SystemExit("give --seeds (literal seeds) or --count (random seeds), not both")
-    seeds = parse_seeds(args.seeds) if args.seeds else [random.randint(1, 2**32 - 2) for _ in range(args.count or 1)]
+    if args.seeds:
+        seeds = parse_seeds(args.seeds)
+    elif args.count:
+        seeds = [random.randint(1, 2**32 - 2) for _ in range(args.count)]
+    elif config_input and base.get("seed") is not None:
+        seeds = [int(base["seed"])]
+    else:
+        seeds = [random.randint(1, 2**32 - 2)]
     if not args.out and not args.estimate_only:
         raise SystemExit("give --out DIR")
     out_dir = Path(args.out or ".")
     if not args.estimate_only:
         out_dir.mkdir(parents=True, exist_ok=True)
-    name = args.name or (Path(prompt_path).stem if prompt_path else "render")
+    name = args.name or (config_input["name"] if config_input else None) or (Path(prompt_path).stem if prompt_path else "render")
     name = re.sub(r"[^A-Za-z0-9._-]+", "-", name).strip("-") or "render"
+    export_recipe = {
+        "name": (config_input["name"] if config_input else None) or name,
+        "raw": copy.deepcopy(config_input["raw"] if config_input else {}),
+    }
 
     if not args.estimate_only:  # keep the exact prompt with the renders
-        (out_dir / ("prompt.json" if prompt_path and prompt_path.endswith(".json") else "prompt.txt")).write_text(prompt + "\n", encoding="utf-8")
+        prompt_name = "prompt.json" if prompt.lstrip().startswith("{") else "prompt.txt"
+        (out_dir / prompt_name).write_text(prompt + "\n", encoding="utf-8")
         if negative:
             (out_dir / "negative.txt").write_text(negative + "\n", encoding="utf-8")
 
@@ -586,6 +765,8 @@ def main() -> int:
     started = datetime.now(timezone.utc).isoformat(timespec="seconds")
     run_path = out_dir / "run.json"
     plain_settings = {k: v for k, v in settings.items() if k != "loras"}
+    plain_configuration = copy.deepcopy(base)
+    plain_configuration.pop("seed", None)  # each image carries its own seed
     done: dict[int, dict] = {}
     prior = None
     if run_path.exists():
@@ -596,6 +777,7 @@ def main() -> int:
     same_run = bool(prior) and all((
         prior.get("model") == spec["file"], prior.get("name") == name, prior.get("prompt_sha256") == sha256(prompt),
         prior.get("negative", "") == negative, prior.get("settings") == plain_settings,
+        prior.get("configuration") == plain_configuration,
         [list(x) for x in prior.get("loras", [])] == [list(x) for x in settings["loras"]],
     ))
     if same_run and not args.overwrite:
@@ -615,7 +797,8 @@ def main() -> int:
             return 5
 
     run = {
-        "started": started, "run_dir": str(out_dir), "name": name, "recipe": args.recipe, "model": spec["file"], "spec": spec,
+        "started": started, "run_dir": str(out_dir), "name": name, "recipe": recipe_key, "model": spec["file"], "spec": spec,
+        "config_file": config_input["path"] if config_input else None, "configuration": plain_configuration,
         "prompt_file": prompt_path, "prompt_sha256": sha256(prompt), "prompt_words": len(prompt.split()), "prompt_chars": len(prompt),
         "prompt_tokens": tokens, "prompt_tokens_exact": exact,
         "prompt": prompt, "negative": negative, "settings": plain_settings,
@@ -646,7 +829,8 @@ def main() -> int:
     signal.signal(signal.SIGTERM, on_term)
     state: dict = {}
     try:
-        entries = asyncio.run(render_all(args, spec, settings, prompt, negative, seeds, out_dir, name, done, save, state))
+        entries = asyncio.run(render_all(args, spec, settings, base, export_recipe,
+                                         prompt, negative, seeds, out_dir, name, done, save, state))
     except KeyboardInterrupt:
         print(f"\ninterrupted after {state.get('requests', 0)} requests; finished seeds are in {run_path}; "
               "run the same command again to resume", file=sys.stderr)
@@ -662,7 +846,7 @@ def main() -> int:
         log_path.parent.mkdir(parents=True, exist_ok=True)
         with log_path.open("a", encoding="utf-8") as fh:
             for e in (e for e in entries if not e.get("resumed")):
-                line = {"ts": started, "run_dir": str(out_dir), "name": name, "recipe": args.recipe, "model": spec["file"],
+                line = {"ts": started, "run_dir": str(out_dir), "name": name, "recipe": recipe_key, "model": spec["file"],
                         "prompt_file": prompt_path, "prompt_sha256": run["prompt_sha256"], "prompt_words": run["prompt_words"], "prompt_tokens": tokens,
                         "width": width, "height": height, "steps": settings["steps"], "cfg": settings["cfg"], "shift": settings["shift"],
                         "sampler": settings["sampler"], "rds": settings["resolution_dependent_shift"], "zero_negative": settings["zero_negative"], "loras": settings["loras"],

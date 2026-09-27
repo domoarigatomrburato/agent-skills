@@ -53,6 +53,7 @@ python3 scripts/dt_render.py --recipe krea-2-turbo --prompt-file prompts/krea-2-
 - `--size WxH` overrides the recipe's default (multiples of 64, at most 2048 on a side; `size.py` in the krea-prompt skill gives the size for a ratio). `--steps`, `--cfg`, `--shift`, `--sampler` override the recipe; leave them alone while iterating on a prompt.
 - A `.json` prompt file is validated and minified before sending; a `.txt` file is sent as is. `--negative-file` adds a negative prompt where the model uses one (Turbo ignores it). A recipe can carry a default negative (`qwen-image-2512` carries the model card's); `--negative-file` or `--negative` replaces it and `--negative ""` sends none.
 - `--out` gets `<name>-s<seed>.png` (with Draw Things metadata inside the PNG), a copy of the exact prompt, `run.json` with everything, and `<name>-sheet.jpg` when at least two images succeeded. `--name` sets the base name (default: the prompt file's stem).
+- Every successful PNG also gets `<name>-s<seed>.config.json`: a reusable recipe containing the exact prompt and negative prompt plus pasteable Copy Configuration JSON with that image's seed.
 - `--log` appends one JSON line per image: settings, seed, timing, prompt hash and file, status, your `--note`. Keep one `runs.jsonl` per project so a whole project's history is one file.
 - Expect 15 to 60 s before the first sampling step and 90 to 230 s per 2K image on the cloud (Ideogram and Qwen Image near 40,000 units are the slow end). A round of four seeds is six to fifteen minutes. **Never run a render as a blocking foreground command**, not even a one-image test: start it in the background so the conversation stays open, and tell the user it is running and how to stop it. Before starting, the script prints the plan (images, the most requests it may send, rough minutes) and how to stop it.
 - **Stopping a run**: Ctrl-C or `kill <pid>` end it at once; `touch <out>/STOP` ends it within seconds (`~/.cache/drawthings-skill/STOP` stops every run). Stop files older than the run are ignored, so a leftover never blocks the next one. Finished seeds are kept.
@@ -60,6 +61,44 @@ python3 scripts/dt_render.py --recipe krea-2-turbo --prompt-file prompts/krea-2-
 
 Change one thing per round, say what in `--note`, and keep the note in the project's
 `notes.md` when the round taught something.
+
+### Load or save the app's Copy Configuration JSON
+
+The app's **Copy Configuration** command copies the settings but not the prompt. Save it as
+JSON and combine it with a prompt on the command line:
+
+```bash
+pbpaste | python3 scripts/dt_render.py --config - --prompt-file prompts/qwen.txt \
+  --negative "" --out renders/qwen-repro
+```
+
+`--config FILE` accepts three shapes: the bare object copied by the app; an app preset with
+`name`, `negative` and `configuration`; or the skill's self-contained recipe:
+
+```json
+{
+  "name": "qwen-image-2512",
+  "prompt": "the exact prompt",
+  "negative": "",
+  "configuration": {"model": "qwen_image_2512_q8p.ckpt", "sampler": 15}
+}
+```
+
+The model file selects the matching recipe and therefore its full cloud spec. A model absent
+from `recipes.json` still needs `--spec FILE` after its spec has been derived. Settings come
+from the configuration; explicit command-line flags win, including prompt, negative, seed,
+size, steps, CFG, shift, sampler and boolean `--no-*` overrides. `batchCount` and `batchSize`
+must be 1 because the renderer saves one image per seed.
+
+To turn an app or API PNG into a self-contained recipe, prompt included:
+
+```bash
+python3 scripts/png_config.py image.png --config-out image.config.json
+python3 scripts/dt_render.py --config image.config.json --out renders/repro
+```
+
+The `configuration` object remains valid app Copy/Paste Configuration JSON; fields unknown to
+the Python SDK are preserved when the recipe is loaded and written again.
 
 ## 2b. Compute units (the cloud's per-image budget)
 
@@ -142,7 +181,8 @@ the model files behind a recipe can be updated upstream, so keep the keeper.
 The app stores the same information in every PNG it exports: an XMP block with the prompt,
 the negative prompt, the model file, size, steps, guidance, shift, sampler, seed and every
 configuration flag. `python3 scripts/png_config.py image.png` prints it, `--prompt-out
-caption.json` saves the prompt, and the last line is the `dt_render.py` command that
-reproduces the image. That is how the app's own settings for a cloud model are read, since
+caption.json` saves the prompt, `--config-out image.config.json` saves a complete reusable
+recipe, and the last line is the `dt_render.py` command that reproduces the image. That is how
+the app's own settings for a cloud model are read, since
 macOS keeps other processes out of the app's container and its database; a render made this
 way from the app's seed matched the app's image pixel for pixel.

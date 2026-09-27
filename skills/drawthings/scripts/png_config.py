@@ -6,6 +6,7 @@ an XMP block whose exif:UserComment holds the generation configuration as JSON.
 
     python3 png_config.py image.png                 # settings, prompt head, reproduce command
     python3 png_config.py image.png --prompt-out caption.json
+    python3 png_config.py image.png --config-out image.config.json
     python3 png_config.py image.png --json          # the whole configuration as JSON
 """
 import argparse
@@ -80,14 +81,53 @@ def recipe_for(model_file: str):
     return None
 
 
+def configuration_block(cfg: dict) -> dict:
+    """Return the app's pasteable Copy Configuration block from PNG metadata."""
+    if isinstance(cfg.get("v2"), dict):
+        return cfg["v2"]
+    # Older PNGs may only carry the compact, human-readable metadata.
+    sampler = cfg.get("sampler")
+    sampler_names = [
+        "DPM++ 2M Karras", "Euler A", "DDIM", "PLMS", "DPM++ SDE Karras", "UniPC", "LCM",
+        "Euler A Substep", "DPM++ SDE Substep", "TCD", "Euler A Trailing", "DPM++ SDE Trailing",
+        "DPM++ 2M AYS", "Euler A AYS", "DPM++ SDE AYS", "DPM++ 2M Trailing", "DDIM Trailing",
+        "UniPC Trailing", "UniPC AYS", "TCD Trailing",
+    ]
+    try:
+        sampler = sampler_names.index(sampler)
+    except ValueError:
+        pass
+    width, height = (cfg.get("size") or "1024x1024").split("x", 1)
+    return {
+        "model": cfg.get("model"), "width": int(width), "height": int(height),
+        "seed": cfg.get("seed"), "steps": cfg.get("steps"), "guidanceScale": cfg.get("scale"),
+        "strength": cfg.get("strength", 1), "sampler": sampler, "shift": cfg.get("shift"),
+    }
+
+
+def write_config_recipe(path: str, image: str, cfg: dict) -> None:
+    model = cfg.get("model") or cfg.get("v2", {}).get("model")
+    document = {
+        "name": recipe_for(model) or Path(image).stem,
+        "prompt": cfg.get("c", "") or "",
+        "negative": cfg.get("uc", "") or "",
+        "configuration": configuration_block(cfg),
+    }
+    Path(path).write_text(json.dumps(document, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("image")
     ap.add_argument("--prompt-out", help="write the prompt exactly as sent to this file")
+    ap.add_argument("--config-out", help="write a reusable recipe with prompt, negative and Copy Configuration JSON")
     ap.add_argument("--json", action="store_true", help="print the whole configuration as JSON and exit")
     args = ap.parse_args()
 
     cfg = read_config(args.image)
+    if args.config_out:
+        write_config_recipe(args.config_out, args.image, cfg)
+        print(f"config written:  {args.config_out}")
     if args.json:
         print(json.dumps(cfg, indent=1, ensure_ascii=False))
         return
@@ -145,6 +185,12 @@ def main() -> None:
 
     recipe = recipe_for(model)
     cmd = ["python3", str(HERE / "dt_render.py")]
+    if args.config_out:
+        cmd += ["--config", args.config_out, "--out", "renders/repro"]
+        print()
+        print("reproduce with:")
+        print("  " + " ".join(cmd))
+        return
     cmd += ["--recipe", recipe] if recipe else ["--spec", "SPEC.json"]
     cmd += ["--prompt-file", prompt_arg, "--size", str(size), "--steps", str(steps), "--cfg", f"{scale:g}" if isinstance(scale, (int, float)) else str(scale)]
     if isinstance(shift, (int, float)):

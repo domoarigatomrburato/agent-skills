@@ -44,6 +44,38 @@ EulerASubstep, DPMPPSDESubstep, TCD, EulerATrailing, DPMPPSDETrailing, DPMPP2MAY
 DPMPPSDEAYS, DPMPP2MTrailing, DDIMTrailing, UniPCTrailing, UniPCAYS, TCDTrailing. Flow models
 (Krea 2, Ideogram 4, Z Image, Qwen Image, FLUX) take the Trailing or AYS samplers only.
 
+## Configuration JSON formats
+
+Draw Things has three related JSON shapes:
+
+- **Copy/Paste Configuration** uses the scripting `JSGenerationConfiguration` schema:
+  camelCase keys, with enum values such as `sampler` and `seedMode` stored as integers. It has
+  settings only, no prompt.
+- App presets wrap that object as `{name, version, negative, configuration}`. Official presets
+  are published at `https://models.drawthings.ai/configs.json`; custom app presets use the same
+  wrapper, although the app may leave their negative prompt empty.
+- PNG metadata contains the prompt as `c`, negative as `uc`, compact display fields at the top
+  level, and the full scripting configuration as `v2`.
+
+The skill's reusable recipe is the app preset shape plus `prompt`:
+
+```json
+{"name":"name","prompt":"text","negative":"text","configuration":{}}
+```
+
+The inner `configuration` object can still be copied back to the app unchanged. `dt_render.py
+--config` accepts all three useful inputs: a bare configuration object, an app preset, or the
+reusable recipe. The configuration's model file selects the full spec in `recipes.json`;
+command-line options take precedence. `png_config.py --config-out` converts a PNG's `v2`, `c`
+and `uc` fields to the reusable form, and every successful API render writes the same form next
+to its PNG.
+
+drawthings-py 0.4's `config_dict_from_json` has a truthiness bug: its `if value := ...` drops
+every `false`, numeric `0`, empty list and empty string. In particular,
+`resolutionDependentShift: false` disappears and the SDK falls back to `true`, recomputing the
+shift. The renderer therefore walks the SDK property table itself, retains every value that is
+not `None`, and supplies camelCase aliases for scripting fields missing from that table.
+
 ## Ideogram 4 guidance path (UNetFixedEncoder.swift)
 
 With CFG on, the encoder builds the transformer's text as `negative tokens + caption tokens` in
