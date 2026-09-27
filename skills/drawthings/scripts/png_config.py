@@ -145,6 +145,7 @@ def main() -> None:
     zero_negative = v2.get("zeroNegativePrompt")
     rds = v2.get("resolutionDependentShift")
     tiled = v2.get("tiledDecoding")
+    tiled_diffusion = v2.get("tiledDiffusion")
     loras = v2.get("loras") or []
     expand = cfg.get("expand_prompt_to_json", v2.get("expandPromptToJson"))
     profile = cfg.get("profile") or {}
@@ -161,6 +162,7 @@ def main() -> None:
     print(f"zero negative:   {zero_negative}")
     print(f"res.-dep. shift: {rds}")
     print(f"tiled decoding:  {tiled}")
+    print(f"tiled diffusion: {tiled_diffusion}")
     if expand is not None:
         print(f"expand to JSON:  {expand}")
     if loras:
@@ -175,24 +177,35 @@ def main() -> None:
     print("prompt head:     " + prompt[:160].replace("\n", " ") + ("..." if len(prompt) > 160 else ""))
 
     is_json = prompt.lstrip().startswith("{")
+    is_seedvr2 = isinstance(model, str) and model.startswith("seedvr2_")
     if args.prompt_out:
         Path(args.prompt_out).write_text(prompt)
         print(f"prompt written:  {args.prompt_out}")
         prompt_arg = args.prompt_out
     else:
         prompt_arg = "PROMPT.json" if is_json else "PROMPT.txt"
-        print(f"(pass --prompt-out {prompt_arg} to save the prompt for the command below)")
+        if prompt:
+            print(f"(pass --prompt-out {prompt_arg} to save the prompt for the command below)")
+    if is_seedvr2:
+        print("source image:    not embedded in PNG metadata; supply the original as --init-image")
 
     recipe = recipe_for(model)
     cmd = ["python3", str(HERE / "dt_render.py")]
     if args.config_out:
-        cmd += ["--config", args.config_out, "--out", "renders/repro"]
+        cmd += ["--config", args.config_out]
+        if is_seedvr2:
+            cmd += ["--init-image", "ORIGINAL.png"]
+        cmd += ["--out", "renders/repro"]
         print()
         print("reproduce with:")
         print("  " + " ".join(cmd))
         return
     cmd += ["--recipe", recipe] if recipe else ["--spec", "SPEC.json"]
-    cmd += ["--prompt-file", prompt_arg, "--size", str(size), "--steps", str(steps), "--cfg", f"{scale:g}" if isinstance(scale, (int, float)) else str(scale)]
+    if prompt or not is_seedvr2:
+        cmd += ["--prompt-file", prompt_arg]
+    if is_seedvr2:
+        cmd += ["--init-image", "ORIGINAL.png"]
+    cmd += ["--size", str(size), "--steps", str(steps), "--cfg", f"{scale:g}" if isinstance(scale, (int, float)) else str(scale)]
     if isinstance(shift, (int, float)):
         cmd += ["--shift", f"{shift:.4g}"]
     if sampler:
@@ -203,6 +216,8 @@ def main() -> None:
         cmd.append("--resolution-dependent-shift")
     if tiled:
         cmd.append("--tiled-decode")
+    if tiled_diffusion:
+        cmd.append("--tiled-diffusion")
     for lora in loras:
         cmd += ["--lora", f"{lora.get('file')}:{lora.get('weight')}"]
     if negative:

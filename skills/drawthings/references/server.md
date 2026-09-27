@@ -8,7 +8,7 @@ Mode), Cloud Compute selected in the project.
 
 - Service `ImageGenerationService` (proto in `Libraries/GRPC/Models/Sources/imageService/imageService.proto` of `drawthingsai/draw-things-community`): `GenerateImage` (server stream), `Echo` (returns the local model list as JSON in `override.models`), `FilesExist`, `UploadFile`.
 - TLS uses the Draw Things root CA that `drawthings-py` bundles (`resources/root_ca.crt`); the certificate's name is `localhost`, hostname checking is off in the SDK.
-- The request carries `prompt`, `negativePrompt`, `configuration` (a FlatBuffer `GenerationConfiguration`, schema `Libraries/DataModels/Sources/config.fbs`), `override.models` (JSON list of model specs), `user`, `device`, `chunked`.
+- The request carries `prompt`, `negativePrompt`, `configuration` (a FlatBuffer `GenerationConfiguration`, schema `Libraries/DataModels/Sources/config.fbs`), an optional target-sized fp16 `image` tensor for image-to-image, `override.models` (JSON list of model specs), `user`, `device`, `chunked`.
 - Response stream: a `currentSignpost` per stage (`textEncoded`, `imageEncoded`, `sampling.step`, `imageDecoded`), preview images, then `generatedImages`; with Response Compression on, images are fpzip tensors that the SDK decodes. With `chunked` false the final PNG is the last generated image.
 - A model the app does not have (cloud-only) needs its spec in `override.models`; the SDK never fills that field, so `dt_render.py` patches its request builder to add it. The patch is guarded: if the SDK changes the builder, the script exits with a message.
 
@@ -115,6 +115,24 @@ or run-to-run variation between machines) and not known. The model card's 50 Eul
 Trailing) and 34 steps of DPM++ 2M Trailing gave practically the same image at 1536x1024 (mean
 difference 2.8 on a 0 to 255 scale at 64 px), which is why the recipe uses 34.
 
+## SeedVR2 7B image input and fill frame
+
+An app-exported 3840x2560 PNG made from a 1920x1280 input identifies the model as
+`seedvr2_7b_q8p.ckpt` and carries these effective settings: one step, guidance 1, shift 1.03,
+DPM++ 2M Trailing, strength 1, Scale Alike, both tiled decoding and tiled diffusion enabled,
+1024x1024 tiles with 128px overlap, and empty positive and negative prompts. The model-zoo
+spec uses version `seedvr2_7b`, itself as text encoder, `seedvr2_vae_f16.ckpt`, modifier
+`inpainting`, default scale 24, hires-fix scale 512, u-objective condition scale 1000 and latent
+scaling factor 0.9152.
+
+`RequestBuilder.init_image()` puts an image tensor in the gRPC request, but drawthings-py 0.4
+always calls `ImageBuffer.resized(width, height, 3)`, which stretches a mismatched aspect ratio.
+Its unused `center_cropped()` helper also computes the crop against target dimensions instead
+of source dimensions. `dt_render.py` therefore prepares the canvas itself: EXIF transpose,
+RGB conversion, proportional bilinear cover resize, centered crop to the exact output size.
+Because the resulting `ImageBuffer` already has the target dimensions, the SDK performs no
+further resize. This is the terminal equivalent of the app's Paste → Fill Frame workflow.
+
 ## Timings seen
 
 | Model | Size | Steps | Total | First step |
@@ -132,6 +150,7 @@ difference 2.8 on a 0 to 255 scale at 64 px), which is why the recipe uses 34.
 | Qwen Image 2512, CFG 4, DPM++ 2M Trailing | 1536x1024 | 34 | 148 s | 23 s |
 | Qwen Image 2512, CFG 4, DPM++ 2M Trailing | 1920x1280 | 36 | 239 s | 28 s |
 | the app itself, same job as the 239 s row | 1920x1280 | 36 | 230 s | 30 s (text encoding 23 s) |
+| SeedVR2 7B, 1920x1280 init image | 3840x2560 | 1 | 108 s | 67 s |
 
 No throttling across some twenty jobs in one morning. Random aborts before the first step do
 happen and are the reason for the retries. Mid-sampling drops (`No images received from server`) also happen; four in a row on one model turned out to be an incomplete spec (see SKILL.md, section 5), not the cloud.
@@ -166,5 +185,6 @@ run; export the PNG from a variant with a plain cloud icon.
 
 - Version 0.4.x, Python 3.11+, depends on a betterproto pre-release (the setup script lists it explicitly so pip and uv accept it). GPL-3.0: a dependency of this skill, never copied into it.
 - `RequestBuilder(config, prompt, negative)`; `Configs.create(width=..., height=..., steps=..., guidance=..., shift=..., sampler="DDIMTrailing", seed=..., seed_mode="ScaleAlike", strength=1.0, resolution_dependent_shift=False, tiled_decoding=False, model="file.ckpt")`; `DrawThings.grpc(host, port, progressbar=False, disable_messages=True)`; `await service.generate(rb)` returns image buffers with `to_file()`, which writes Draw Things metadata into the PNG.
+- `RequestBuilder.init_image(path_or_buffer)` supplies the image-to-image tensor. Pre-size it to the output dimensions before attaching it when the placement policy matters; the SDK's request builder otherwise resizes directly to `(width, height)` with bilinear interpolation.
 - `raise_grpc_error` maps INTERNAL to `DrawThingsServerError` and UNAVAILABLE to `DrawThingsUnavailableError`; the message text carries the gRPC status and details.
 - The SDK's `strength` defaults to 0 when unset; the script sets 1.0 explicitly.

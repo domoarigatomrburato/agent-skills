@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 
 from drawthings_py import Configs
+from PIL import Image
 
 
 SKILL = Path(__file__).resolve().parents[1]
@@ -77,6 +78,30 @@ class ConfigurationRecipeTests(unittest.TestCase):
     def test_png_v2_is_the_configuration_block(self):
         v2 = {"model": "model.ckpt", "seed": 42}
         self.assertIs(png_config.configuration_block({"v2": v2}), v2)
+
+    def test_init_image_fill_covers_canvas_with_center_crop(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "wide.png"
+            Image.new("RGB", (400, 200), (10, 20, 30)).save(source)
+            prepared, metadata = dt_render.prepare_init_image(str(source), 300, 300, "fill")
+        self.assertEqual((prepared.width, prepared.height, prepared.channels), (300, 300, 3))
+        self.assertEqual(metadata["source_size"], [400, 200])
+        self.assertEqual(metadata["resized_size"], [600, 300])
+        self.assertEqual(metadata["crop"], [150, 0, 450, 300])
+
+    def test_config_recipe_resolves_saved_init_image_relative_to_itself(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "init-image.png").write_bytes(b"placeholder")
+            config = root / "result.config.json"
+            config.write_text(json.dumps({
+                "name": "upscale", "prompt": "", "negative": "",
+                "init_image": "init-image.png", "init_fit": "fill",
+                "configuration": {"model": "seedvr2_7b_q8p.ckpt"},
+            }), encoding="utf-8")
+            loaded = dt_render.load_config_recipe(str(config))
+        self.assertEqual(loaded["init_image"], str((root / "init-image.png").resolve()))
+        self.assertEqual(loaded["init_fit"], "fill")
 
 
 if __name__ == "__main__":

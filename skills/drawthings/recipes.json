@@ -90,5 +90,48 @@
       "negative": "低分辨率，低画质，肢体畸形，手指畸形，画面过饱和，蜡像感，人脸无细节，过度光滑，画面具有AI感。构图混乱。文字模糊，扭曲。"
     },
     "notes": "Verified 2026-09-26 through Bridge Mode at 1024x704, 1536x1024 and 1920x1280. The spec is the app's own model zoo entry with every field: without `objective` and the `mmdit` activation scaling the cloud drops the job mid-sampling with 'No images received from server'. default_scale 16 is the zoo's value and renders 1920x1280. Defaults: the model card's CFG 4 and negative prompt at 34 steps DPM++ 2M Trailing, which matched the card's 50 Euler steps (DDIM Trailing here) down to fine detail at two thirds of the compute (21,648 against 31,835 units at 1536x1024, the card's 3:2 size rounded to multiples of 64). Shift follows the card's resolution-dependent schedule, exp(0.5 + 0.4 * ((W/16)*(H/16) - 256) / 7936): 1024x1024 2.00, 1344x1344 2.32, 1536x1024 2.22, 1408x1792 2.67, 1920x1280 2.64, 2048x1344 2.80. Draw Things' own preset is 30 steps, CFG 4, shift 2, UniPC Trailing. 1920x1280 at 36 steps is 39,699 units, the top of the Draw Things+ limit. The app's 1920x1280 image was reproduced through the API down to fine detail but not pixel for pixel."
+  },
+  "seedvr2-7b-upscale": {
+    "title": "SeedVR2 7B 2x restoration/upscale, 8-bit",
+    "spec": {
+      "name": "SeedVR2 7B",
+      "file": "seedvr2_7b_q8p.ckpt",
+      "version": "seedvr2_7b",
+      "prefix": "",
+      "default_scale": 24,
+      "hires_fix_scale": 512,
+      "text_encoder": "seedvr2_7b_q8p.ckpt",
+      "autoencoder": "seedvr2_vae_f16.ckpt",
+      "modifier": "inpainting",
+      "latents_scaling_factor": 0.9152,
+      "objective": {
+        "u": {
+          "condition_scale": 1000
+        }
+      }
+    },
+    "defaults": {
+      "steps": 1,
+      "cfg": 1.0,
+      "shift": 1.03,
+      "sampler": "DPMPP2MTrailing",
+      "resolution_dependent_shift": false,
+      "zero_negative_prompt": false,
+      "strength": 1.0,
+      "scale": 2.0,
+      "init_fit": "fill",
+      "tiled_decode": true,
+      "tiled_diffusion": true,
+      "decoding_tile_width": 1024,
+      "decoding_tile_height": 1024,
+      "decoding_tile_overlap": 128,
+      "diffusion_tile_width": 1024,
+      "diffusion_tile_height": 1024,
+      "diffusion_tile_overlap": 128,
+      "negative": ""
+    },
+    "prompt_required": false,
+    "init_image_required": true,
+    "notes": "Settings extracted 2026-09-27 from an app export produced by upscaling 1920x1280 to 3840x2560: one diffusion step, CFG 1, shift 1.03, DPM++ 2M Trailing, strength 1, Scale Alike seed, tiled decoding and tiled diffusion with 1024px tiles and 128px overlap, no prompt or negative prompt. The input is placed with fill: proportional scale followed by a centered crop, so the canvas has no empty pixels. Verified through the API at the same 2x sizes: 107.8 s total, first step at 67.3 s, one request."
   }
 }

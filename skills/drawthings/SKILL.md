@@ -1,6 +1,6 @@
 ---
 name: drawthings
-description: Render prompts through the Draw Things app's API server (gRPC) from the terminal instead of pasting them into the app. Picks a model recipe (Krea 2 Turbo, Ideogram 4 and Qwen Image 2512 through Draw Things+ cloud compute, or any model the app has locally), runs a seed set one job at a time, survives the flaky cloud (retries, stall detection, resume) while staying easy to stop, saves PNGs with the exact prompt, a run log and a contact sheet, and looks at the results. Use this skill whenever the user wants to generate, render, batch, retry, compare seeds or log image experiments with Draw Things, mentions its API server, gRPC, Bridge Mode or cloud compute, or asks to run a Krea or Ideogram prompt "in Draw Things", even if they only say "render it" or "try a few seeds".
+description: Generate or upscale images through the Draw Things app's gRPC API instead of operating its GUI. Picks a model recipe (including Krea 2 Turbo, Ideogram 4, Qwen Image 2512, and SeedVR2 7B), supports init images with deterministic fill-frame placement, runs one job at a time, retries and resumes flaky cloud jobs, and saves reproducible PNGs, settings, inputs, logs, and contact sheets. Use whenever the user wants to render, upscale, batch, retry, compare seeds, or log experiments with Draw Things, or mentions its API server, gRPC, Bridge Mode, cloud compute, SeedVR2, or "render it in Draw Things".
 ---
 
 # Draw Things API server
@@ -50,7 +50,7 @@ python3 scripts/dt_render.py --recipe krea-2-turbo --prompt-file prompts/krea-2-
 ```
 
 - `--count 4` draws four random seeds (printed and logged); `--seeds 12345,777` reuses known ones. `--seeds` always means literal seeds, so `--seeds 42` is the one seed 42. Seeds run one after another because the server takes one job at a time. A run refuses to start above `--max-images` (default 8); raise it on purpose for bigger rounds.
-- `--size WxH` overrides the recipe's default (multiples of 64, at most 2048 on a side; `size.py` in the krea-prompt skill gives the size for a ratio). `--steps`, `--cfg`, `--shift`, `--sampler` override the recipe; leave them alone while iterating on a prompt.
+- `--size WxH` overrides the recipe's default (multiples of 64; text-to-image cloud recipes normally stay at or below 2048 on a side, while tiled SeedVR2 upscales can be larger). `size.py` in the krea-prompt skill gives a text-to-image size for a ratio. `--steps`, `--cfg`, `--shift`, `--sampler` override the recipe; leave them alone while iterating on a prompt.
 - A `.json` prompt file is validated and minified before sending; a `.txt` file is sent as is. `--negative-file` adds a negative prompt where the model uses one (Turbo ignores it). A recipe can carry a default negative (`qwen-image-2512` carries the model card's); `--negative-file` or `--negative` replaces it and `--negative ""` sends none.
 - `--out` gets `<name>-s<seed>.png` (with Draw Things metadata inside the PNG), a copy of the exact prompt, `run.json` with everything, and `<name>-sheet.jpg` when at least two images succeeded. `--name` sets the base name (default: the prompt file's stem).
 - Every successful PNG also gets `<name>-s<seed>.config.json`: a reusable recipe containing the exact prompt and negative prompt plus pasteable Copy Configuration JSON with that image's seed.
@@ -61,6 +61,28 @@ python3 scripts/dt_render.py --recipe krea-2-turbo --prompt-file prompts/krea-2-
 
 Change one thing per round, say what in `--note`, and keep the note in the project's
 `notes.md` when the round taught something.
+
+### Upscale with SeedVR2 7B
+
+SeedVR2 is image-to-image restoration, not prompt-driven generation. Give it the original
+image; the verified recipe defaults to 2x and sends empty positive and negative prompts:
+
+```bash
+python3 scripts/dt_render.py --recipe seedvr2-7b-upscale \
+  --init-image original.png --out renders/upscaled
+```
+
+The recipe matches an app export: SeedVR2 7B q8p, one step, CFG 1, shift 1.03, DPM++ 2M
+Trailing, strength 1, Scale Alike, tiled decoding and tiled diffusion, 1024 px tiles with 128
+px overlap. `--scale 2` is implicit; use `--scale N` or `--size WxH` to override it.
+
+`--init-fit fill` is the default and is deliberate. The script preserves the input aspect
+ratio, enlarges it until the whole target canvas is covered, then center-crops the excess. It
+therefore reproduces **Paste → Fill Frame** without leaving transparent or empty bands. Use
+`--init-fit stretch` only when distortion is intended. The exact target-sized RGB canvas sent
+to the server is saved as `init-image.png`; every output `.config.json` refers to that file, so
+rerunning it reproduces the image input as well as the numeric settings. `run.json` also records
+the original path, SHA-256, source size, resized size and crop rectangle.
 
 ### Load or save the app's Copy Configuration JSON
 
@@ -86,8 +108,9 @@ pbpaste | python3 scripts/dt_render.py --config - --prompt-file prompts/qwen.txt
 
 The model file selects the matching recipe and therefore its full cloud spec. A model absent
 from `recipes.json` still needs `--spec FILE` after its spec has been derived. Settings come
-from the configuration; explicit command-line flags win, including prompt, negative, seed,
-size, steps, CFG, shift, sampler and boolean `--no-*` overrides. `batchCount` and `batchSize`
+from the configuration; explicit command-line flags win, including prompt, negative, init
+image, init fit, seed, size, scale, steps, CFG, shift, sampler and boolean `--no-*` overrides.
+`batchCount` and `batchSize`
 must be 1 because the renderer saves one image per seed.
 
 To turn an app or API PNG into a self-contained recipe, prompt included:
@@ -135,6 +158,7 @@ constant they tuned on FLUX; treat a result within a few percent of the limit as
 | `krea-2-turbo` | `krea_2_turbo_i8x.ckpt` (cloud) | 8 steps, CFG 1.0, shift 3.16, DDIM Trailing, 2048x1344 | plain text from `krea-prompt` |
 | `ideogram-4` | `ideogram_4_q8p.ckpt` (cloud) | 32 steps, CFG 7, shift 2.99, DPM++ 2M Trailing, zero negative prompt on, 1920x1280: the app's own settings for "Ideogram 4 remote" | JSON caption from `ideogram-prompt`, up to 2,000 tokens |
 | `qwen-image-2512` | `qwen_image_2512_q8p.ckpt` (cloud) | 34 steps, CFG 4, shift 2.22, DPM++ 2M Trailing, the model card's negative prompt, 1536x1024. Shift follows the card's schedule by size (1024x1024 2.00, 1408x1792 2.67, 1920x1280 2.64); the recipe notes list more | plain descriptive prose; 513 tokens rendered fine |
+| `seedvr2-7b-upscale` | `seedvr2_7b_q8p.ckpt` | 1 step, CFG 1, shift 1.03, DPM++ 2M Trailing, strength 1, tiled decode + diffusion, 2x | no prompt; requires `--init-image`, fill-frame by default |
 
 A model the app already has locally needs no recipe: `--spec` with a file holding the entry
 from `--check`'s list (name, file, version, text encoder, autoencoder, default scale) works,
@@ -169,6 +193,7 @@ prompt placed, rendered text, the light, the style label. Then:
 - **Ideogram 4 needs the `q8p` model file.** With `ideogram_4_i8x.ckpt` in the spec, guidance above 1 breaks down as the caption grows: at CFG 7 captions up to about 500 Qwen tokens render, 800 come out blown out, 1,000 and more are noise, while CFG 1 stays clean. With `ideogram_4_q8p.ckpt`, the file behind the app's "Ideogram 4 remote", a 1,309-token caption renders cleanly at CFG 7 with or without zero negative prompt, and the app's own image is reproduced pixel for pixel from its seed and settings. The recipe carries the q8p file; if a render ever shows that pattern again (short captions fine, long ones noise), check the model file before anything else.
 - `--timeout` (1200 s per attempt) covers 50-step 2K jobs; raise it for video or larger batches.
 - Local LoRAs (`--lora file.ckpt:0.8`) are passed through the configuration and work for local models; the cloud has no access to local LoRA files, so do not expect them on cloud recipes.
+- For init images, do not rely on the SDK's automatic resize: it stretches directly to the requested dimensions. The renderer prepares an exact target-sized canvas first; `fill` is required for SeedVR2 unless the user explicitly chooses distortion with `stretch`.
 
 ## 6. Reproducing an image
 

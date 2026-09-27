@@ -55,7 +55,7 @@ import time  # noqa: E402
 from datetime import datetime, timezone  # noqa: E402
 
 import drawthings_py.grpc.grpc_service as _grpc_service  # noqa: E402
-from drawthings_py import Configs, DrawThings, RequestBuilder  # noqa: E402
+from drawthings_py import Configs, DrawThings, ImageBuffer, RequestBuilder  # noqa: E402
 from drawthings_py.configs.config_prop import load_props  # noqa: E402
 from drawthings_py.configs.enums import sampler_type_to_int, seed_mode_to_int  # noqa: E402
 from drawthings_py.generated.dt_grpc import image_service  # noqa: E402
@@ -177,17 +177,27 @@ def load_config_recipe(path: str) -> dict:
         prompt = document.get("prompt")
         negative = document.get("negative")
         name = document.get("name")
+        init_image = document.get("init_image")
+        init_fit = document.get("init_fit", "fill")
     else:
-        raw, prompt, negative, name = document, None, None, None
+        raw, prompt, negative, name, init_image, init_fit = document, None, None, None, None, "fill"
     if prompt is not None and not isinstance(prompt, str):
         raise SystemExit("--config field 'prompt' must be a string")
     if negative is not None and not isinstance(negative, str):
         raise SystemExit("--config field 'negative' must be a string")
+    if init_image is not None and not isinstance(init_image, str):
+        raise SystemExit("--config field 'init_image' must be a string")
+    if init_fit not in ("fill", "stretch"):
+        raise SystemExit("--config field 'init_fit' must be 'fill' or 'stretch'")
+    if init_image and path != "-" and not Path(init_image).is_absolute():
+        init_image = str(Path(path).resolve().parent / init_image)
     return {
         "path": None if path == "-" else path,
         "name": name if isinstance(name, str) else None,
         "prompt": prompt,
         "negative": negative,
+        "init_image": init_image,
+        "init_fit": init_fit,
         "raw": raw,
         "sdk": config_dict_from_app(raw),
     }
@@ -219,6 +229,13 @@ def app_configuration(raw: dict, config: dict, seed: int) -> dict:
         "batchSize": config.get("batch_size"),
         "seedMode": seed_mode_to_int(config.get("seed_mode")),
         "tiledDecoding": config.get("tiled_decoding"),
+        "tiledDiffusion": config.get("tiled_diffusion"),
+        "decodingTileWidth": config.get("decoding_tile_width"),
+        "decodingTileHeight": config.get("decoding_tile_height"),
+        "decodingTileOverlap": config.get("decoding_tile_overlap"),
+        "diffusionTileWidth": config.get("diffusion_tile_width"),
+        "diffusionTileHeight": config.get("diffusion_tile_height"),
+        "diffusionTileOverlap": config.get("diffusion_tile_overlap"),
         "zeroNegativePrompt": config.get("zero_negative_prompt"),
         "loras": config.get("loras"),
         "controls": config.get("controls"),
@@ -230,13 +247,17 @@ def app_configuration(raw: dict, config: dict, seed: int) -> dict:
 
 
 def write_config_recipe(path: Path, name: str, prompt: str, negative: str,
-                        raw: dict, config: dict, seed: int) -> None:
+                        raw: dict, config: dict, seed: int, init_image: str | None = None,
+                        init_fit: str = "fill") -> None:
     document = {
         "name": name,
         "prompt": prompt,
         "negative": negative,
         "configuration": app_configuration(raw, config, seed),
     }
+    if init_image:
+        document["init_image"] = init_image
+        document["init_fit"] = init_fit
     tmp = path.with_name(path.name + ".part")
     tmp.write_text(json.dumps(document, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
     tmp.replace(path)
@@ -261,6 +282,69 @@ def read_prompt(path: str | None, inline: str | None) -> tuple[str, str | None]:
 
 def sha256(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as fh:
+        for block in iter(lambda: fh.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def source_image_size(path: str) -> tuple[int, int]:
+    """Read the display-oriented dimensions of an init image."""
+    from PIL import Image, ImageOps
+
+    try:
+        with Image.open(path) as im:
+            return ImageOps.exif_transpose(im).size
+    except Exception as e:  # noqa: BLE001
+        raise SystemExit(f"cannot read --init-image {path!r}: {type(e).__name__}: {e}") from e
+
+
+def prepare_init_image(path: str, width: int, height: int, fit: str) -> tuple[ImageBuffer, dict]:
+    """Build the exact RGB canvas sent to Draw Things.
+
+    ``fill`` preserves aspect ratio, covers the whole canvas, and center-crops the excess.
+    Preparing the target-sized canvas here also bypasses drawthings-py's unconditional resize,
+    which would otherwise stretch an image whose aspect ratio differs from the output.
+    """
+    from PIL import Image, ImageOps
+
+    source = Path(path).expanduser().resolve()
+    if not source.is_file():
+        raise SystemExit(f"--init-image not found: {source}")
+    try:
+        with Image.open(source) as opened:
+            image = ImageOps.exif_transpose(opened).convert("RGB")
+            source_width, source_height = image.size
+            if fit == "fill":
+                scale = max(width / source_width, height / source_height)
+                resized_width = max(width, math.ceil(source_width * scale))
+                resized_height = max(height, math.ceil(source_height * scale))
+                resized = image.resize((resized_width, resized_height), Image.Resampling.BILINEAR)
+                left = (resized_width - width) // 2
+                top = (resized_height - height) // 2
+                canvas = resized.crop((left, top, left + width, top + height))
+                crop = [left, top, left + width, top + height]
+            else:
+                resized_width, resized_height = width, height
+                crop = [0, 0, width, height]
+                canvas = image.resize((width, height), Image.Resampling.BILINEAR)
+    except Exception as e:  # noqa: BLE001
+        raise SystemExit(f"cannot prepare --init-image {source}: {type(e).__name__}: {e}") from e
+    metadata = {
+        "source": str(source),
+        "sha256": sha256_file(source),
+        "source_size": [source_width, source_height],
+        "canvas_size": [width, height],
+        "fit": fit,
+        "resized_size": [resized_width, resized_height],
+        "crop": crop,
+        "prepared_file": "init-image.png",
+    }
+    return ImageBuffer(canvas.tobytes(), width, height, 3), metadata
 
 
 def backoff(attempt: int, base: float, cap: float) -> float:
@@ -391,7 +475,8 @@ def report(entry: dict) -> None:
 
 
 async def render_all(args, spec: dict, settings: dict, config_base: dict, config_recipe: dict,
-                     prompt: str, negative: str, seeds: list[int], out_dir: Path, name: str,
+                     prompt: str, negative: str, seeds: list[int], init_image: ImageBuffer | None,
+                     out_dir: Path, name: str,
                      done: dict[int, dict], save, state: dict) -> list[dict]:
     """Render every seed not in `done`; `save(entries)` runs after each seed so a crash loses nothing."""
     entries: dict[int, dict] = {s: done[s] for s in seeds if s in done}
@@ -412,7 +497,7 @@ async def render_all(args, spec: dict, settings: dict, config_base: dict, config
             for seed in todo:
                 previous = entries.get(seed)
                 entry = await render_one(args, spec, settings, config_base, config_recipe,
-                                         prompt, negative, seed, out_dir, name, state)
+                                         prompt, negative, seed, init_image, out_dir, name, state)
                 if previous:  # keep the attempt history of earlier passes
                     entry["history"] = previous.get("history", []) + entry["history"]
                     entry["attempts"] = len(entry["history"])
@@ -452,11 +537,13 @@ async def attempt_once(args, rb: RequestBuilder, progress: dict, out_dir: Path):
 
 
 async def render_one(args, spec, settings, config_base, config_recipe, prompt, negative, seed,
-                     out_dir: Path, name: str, state: dict) -> dict:
+                     init_image: ImageBuffer | None, out_dir: Path, name: str, state: dict) -> dict:
     job_config = copy.deepcopy(config_base)
     job_config["seed"] = seed
     config = Configs.create(job_config)
     rb = RequestBuilder(config, prompt, negative or None)
+    if init_image is not None:
+        rb.init_image(init_image)
     rb.model_spec = spec  # picked up by _build_with_override
     progress: dict = {}
 
@@ -502,7 +589,9 @@ async def render_one(args, spec, settings, config_base, config_recipe, prompt, n
             if problem:
                 raise RuntimeError(problem)
             write_config_recipe(config_file, config_recipe["name"], prompt, negative,
-                                config_recipe["raw"], job_config, seed)
+                                config_recipe["raw"], job_config, seed,
+                                "init-image.png" if init_image is not None else None,
+                                args.init_fit)
             part.replace(file)
             history.append({"attempt": attempt, "error": None, "seconds": round(time.monotonic() - progress["t0"], 1),
                             "first_step_seconds": progress.get("first"), "last_step": progress.get("step")})
@@ -567,7 +656,12 @@ def main() -> int:
     ap.add_argument("--prompt-file", help="prompt text file, or a .json caption (minified before sending)")
     ap.add_argument("--prompt", help="inline prompt (instead of --prompt-file)")
     ap.add_argument("--negative-file"); ap.add_argument("--negative", default=None)
+    ap.add_argument("--init-image", help="source image for image-to-image or upscaling")
+    ap.add_argument("--init-fit", choices=["fill", "stretch"], default=None,
+                    help="place the init image on the canvas: fill preserves aspect ratio and center-crops (default)")
     ap.add_argument("--size", help="WxH in pixels, multiples of 64 (default: recipe default)")
+    ap.add_argument("--scale", type=float,
+                    help="output scale relative to --init-image (for example 2 for 2x); exclusive with --size")
     ap.add_argument("--seeds", help="literal seeds: 12345 or 12345,777 (never a count)")
     ap.add_argument("--count", type=int, help="draw this many random seeds (default 1 when --seeds is not given)")
     ap.add_argument("--steps", type=int); ap.add_argument("--cfg", type=float); ap.add_argument("--shift", type=float)
@@ -576,6 +670,8 @@ def main() -> int:
     ap.add_argument("--no-resolution-dependent-shift", dest="resolution_dependent_shift", action="store_false")
     ap.add_argument("--tiled-decode", dest="tiled_decode", action="store_true", default=None)
     ap.add_argument("--no-tiled-decode", dest="tiled_decode", action="store_false")
+    ap.add_argument("--tiled-diffusion", dest="tiled_diffusion", action="store_true", default=None)
+    ap.add_argument("--no-tiled-diffusion", dest="tiled_diffusion", action="store_false")
     ap.add_argument("--zero-negative", dest="zero_negative", action="store_true", default=None,
                     help="zero negative prompt: the model's own unconditional branch under CFG (Ideogram 4 needs it)")
     ap.add_argument("--no-zero-negative", dest="zero_negative", action="store_false")
@@ -649,10 +745,24 @@ def main() -> int:
     d = recipe.get("defaults", {})
 
     base = copy.deepcopy(config_input["sdk"] if config_input else {})
+    init_image_path = args.init_image or (config_input["init_image"] if config_input else None)
+    args.init_fit = args.init_fit or (config_input["init_fit"] if config_input else None) or d.get("init_fit", "fill")
+    if args.size and args.scale is not None:
+        raise SystemExit("give --size or --scale, not both")
+    if args.scale is not None and args.scale <= 0:
+        raise SystemExit("--scale must be greater than zero")
     if args.size:
         width, height = parse_size(args.size)
+    elif args.scale is not None:
+        if not init_image_path:
+            raise SystemExit("--scale needs --init-image")
+        source_width, source_height = source_image_size(init_image_path)
+        width, height = parse_size(f"{round(source_width * args.scale)}x{round(source_height * args.scale)}")
     elif base.get("width") is not None and base.get("height") is not None:
         width, height = parse_size(f"{base['width']}x{base['height']}")
+    elif init_image_path and d.get("scale") is not None:
+        source_width, source_height = source_image_size(init_image_path)
+        width, height = parse_size(f"{round(source_width * float(d['scale']))}x{round(source_height * float(d['scale']))}")
     else:
         width, height = parse_size(d.get("size") or "1024x1024")
     steps = args.steps if args.steps is not None else int(base.get("steps", d.get("steps", 20)))
@@ -663,6 +773,8 @@ def main() -> int:
            else bool(base.get("resolution_dependent_shift", d.get("resolution_dependent_shift", False))))
     tiled_decode = (args.tiled_decode if args.tiled_decode is not None
                     else bool(base.get("tiled_decoding", d.get("tiled_decode", False))))
+    tiled_diffusion = (args.tiled_diffusion if args.tiled_diffusion is not None
+                       else bool(base.get("tiled_diffusion", d.get("tiled_diffusion", False))))
     zero_negative = (args.zero_negative if args.zero_negative is not None
                      else bool(base.get("zero_negative_prompt", d.get("zero_negative_prompt", False))))
 
@@ -677,10 +789,15 @@ def main() -> int:
         "model": spec["file"], "width": width, "height": height, "steps": steps,
         "guidance": cfg, "shift": shift, "sampler": sampler,
         "resolution_dependent_shift": rds, "tiled_decoding": tiled_decode,
+        "tiled_diffusion": tiled_diffusion,
         "zero_negative_prompt": zero_negative, "loras": loras,
     })
+    for key in ("decoding_tile_width", "decoding_tile_height", "decoding_tile_overlap",
+                "diffusion_tile_width", "diffusion_tile_height", "diffusion_tile_overlap"):
+        if key not in base and key in d:
+            base[key] = d[key]
     base.setdefault("seed_mode", "ScaleAlike")
-    base.setdefault("strength", 1.0)
+    base.setdefault("strength", d.get("strength", 1.0))
     base.setdefault("batch_count", 1)
     base.setdefault("batch_size", 1)
     base.setdefault("controls", [])
@@ -691,6 +808,7 @@ def main() -> int:
         "width": width, "height": height,
         "steps": steps, "cfg": cfg, "shift": shift, "sampler": sampler,
         "resolution_dependent_shift": rds, "tiled_decode": tiled_decode,
+        "tiled_diffusion": tiled_diffusion,
         "zero_negative": zero_negative,
         "loras": [(item.get("file"), item.get("weight", 1.0)) for item in loras],
     }
@@ -699,8 +817,12 @@ def main() -> int:
         prompt, prompt_path = read_prompt(args.prompt_file, args.prompt)
     elif config_input and config_input["prompt"] is not None:
         prompt, prompt_path = config_input["prompt"], config_input["path"]
+    elif recipe.get("prompt_required", True) is False:
+        prompt, prompt_path = "", None
     else:
         raise SystemExit("give --prompt-file or --prompt, or use a --config recipe with a prompt")
+    if recipe.get("init_image_required") and not init_image_path:
+        raise SystemExit(f"recipe {recipe_key!r} needs --init-image")
     # CLI wins, then the config recipe, then the model recipe default. --negative "" clears it.
     if args.negative_file:
         negative = Path(args.negative_file).read_text(encoding="utf-8")
@@ -724,14 +846,30 @@ def main() -> int:
     out_dir = Path(args.out or ".")
     if not args.estimate_only:
         out_dir.mkdir(parents=True, exist_ok=True)
-    name = args.name or (config_input["name"] if config_input else None) or (Path(prompt_path).stem if prompt_path else "render")
+    name = (args.name or (config_input["name"] if config_input else None) or
+            (Path(prompt_path).stem if prompt_path else None) or
+            (f"{Path(init_image_path).stem}-upscaled" if init_image_path else "render"))
     name = re.sub(r"[^A-Za-z0-9._-]+", "-", name).strip("-") or "render"
     export_recipe = {
         "name": (config_input["name"] if config_input else None) or name,
         "raw": copy.deepcopy(config_input["raw"] if config_input else {}),
     }
 
-    if not args.estimate_only:  # keep the exact prompt with the renders
+    init_image = None
+    init_info = None
+    if init_image_path:
+        if args.estimate_only:
+            source_width, source_height = source_image_size(init_image_path)
+            init_source = Path(init_image_path).expanduser().resolve()
+            init_info = {
+                "source": str(init_source), "sha256": sha256_file(init_source),
+                "source_size": [source_width, source_height], "canvas_size": [width, height],
+                "fit": args.init_fit, "prepared_file": "init-image.png",
+            }
+        else:
+            init_image, init_info = prepare_init_image(init_image_path, width, height, args.init_fit)
+
+    if not args.estimate_only and prompt:  # keep the exact non-empty prompt with the renders
         prompt_name = "prompt.json" if prompt.lstrip().startswith("{") else "prompt.txt"
         (out_dir / prompt_name).write_text(prompt + "\n", encoding="utf-8")
         if negative:
@@ -740,6 +878,9 @@ def main() -> int:
     tokens, exact = qwen_tokens.count(prompt)
     print(f"{spec['file']} {width}x{height} steps {settings['steps']} cfg {settings['cfg']} shift {settings['shift']} "
           f"{settings['sampler']} | {len(prompt.split())} words, {tokens} tokens ({'exact' if exact else 'estimate'}) | seeds {seeds}")
+    if init_info:
+        print(f"init image: {init_info['source_size'][0]}x{init_info['source_size'][1]} -> {width}x{height} "
+              f"with {args.init_fit} (sha256 {init_info['sha256'][:12]})")
     max_tokens = recipe.get("prompt_max_tokens")
     if max_tokens and tokens > max_tokens:
         print(f"prompt is {tokens} tokens; this recipe's limit is {max_tokens} ({recipe.get('prompt_max_tokens_note', '')})",
@@ -778,6 +919,7 @@ def main() -> int:
         prior.get("model") == spec["file"], prior.get("name") == name, prior.get("prompt_sha256") == sha256(prompt),
         prior.get("negative", "") == negative, prior.get("settings") == plain_settings,
         prior.get("configuration") == plain_configuration,
+        prior.get("init_image") == init_info,
         [list(x) for x in prior.get("loras", [])] == [list(x) for x in settings["loras"]],
     ))
     if same_run and not args.overwrite:
@@ -796,12 +938,16 @@ def main() -> int:
                   "use a new --out, or pass --overwrite to replace them", file=sys.stderr)
             return 5
 
+    if init_image is not None:
+        init_image.to_file(out_dir / "init-image.png")
+
     run = {
         "started": started, "run_dir": str(out_dir), "name": name, "recipe": recipe_key, "model": spec["file"], "spec": spec,
         "config_file": config_input["path"] if config_input else None, "configuration": plain_configuration,
         "prompt_file": prompt_path, "prompt_sha256": sha256(prompt), "prompt_words": len(prompt.split()), "prompt_chars": len(prompt),
         "prompt_tokens": tokens, "prompt_tokens_exact": exact,
         "prompt": prompt, "negative": negative, "settings": plain_settings,
+        "init_image": init_info,
         "loras": settings["loras"], "note": args.note, "host": f"{args.host}:{args.port}", "compute_units": units,
         "seeds": seeds, "images": [], "sheet": None,
     }
@@ -830,7 +976,7 @@ def main() -> int:
     state: dict = {}
     try:
         entries = asyncio.run(render_all(args, spec, settings, base, export_recipe,
-                                         prompt, negative, seeds, out_dir, name, done, save, state))
+                                         prompt, negative, seeds, init_image, out_dir, name, done, save, state))
     except KeyboardInterrupt:
         print(f"\ninterrupted after {state.get('requests', 0)} requests; finished seeds are in {run_path}; "
               "run the same command again to resume", file=sys.stderr)
@@ -850,6 +996,7 @@ def main() -> int:
                         "prompt_file": prompt_path, "prompt_sha256": run["prompt_sha256"], "prompt_words": run["prompt_words"], "prompt_tokens": tokens,
                         "width": width, "height": height, "steps": settings["steps"], "cfg": settings["cfg"], "shift": settings["shift"],
                         "sampler": settings["sampler"], "rds": settings["resolution_dependent_shift"], "zero_negative": settings["zero_negative"], "loras": settings["loras"],
+                        "init_image": init_info,
                         "compute_units": units, "seed": e["seed"], "status": e["status"], "seconds": e["seconds"], "first_step_seconds": e["first_step_seconds"],
                         "file": e["file"], "error": e["error"], "note": args.note}
                 fh.write(json.dumps(line, ensure_ascii=False) + "\n")
