@@ -76,6 +76,12 @@ The recipe matches an app export: SeedVR2 7B q8p, one step, CFG 1, shift 1.03, D
 Trailing, strength 1, Scale Alike, tiled decoding and tiled diffusion, 1024 px tiles with 128
 px overlap. `--scale 2` is implicit; use `--scale N` or `--size WxH` to override it.
 
+To reduce SeedVR2's etched microdetail on Draw Things+ cloud, try `--strength 0.8` with a
+new `--out` directory. A 2x portrait comparison showed less microtexture at 0.8 than at
+1.0, but also slightly softer eyes and fabric; inspect the native-size result before
+choosing. `--strength` accepts values greater than zero through 1.0 and overrides a
+`--config` value. This is the image-to-image strength, not a dedicated grain control.
+
 `--init-fit fill` is the default and is deliberate. The script preserves the input aspect
 ratio, enlarges it until the whole target canvas is covered, then center-crops the excess. It
 therefore reproduces **Paste → Fill Frame** without leaving transparent or empty bands. Use
@@ -109,7 +115,7 @@ pbpaste | python3 scripts/dt_render.py --config - --prompt-file prompts/qwen.txt
 The model file selects the matching recipe and therefore its full cloud spec. A model absent
 from `recipes.json` still needs `--spec FILE` after its spec has been derived. Settings come
 from the configuration; explicit command-line flags win, including prompt, negative, init
-image, init fit, seed, size, scale, steps, CFG, shift, sampler and boolean `--no-*` overrides.
+image, init fit, seed, size, scale, steps, CFG, shift, strength, sampler and boolean `--no-*` overrides.
 `batchCount` and `batchSize`
 must be 1 because the renderer saves one image per seed.
 

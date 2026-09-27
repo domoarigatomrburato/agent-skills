@@ -125,6 +125,12 @@ spec uses version `seedvr2_7b`, itself as text encoder, `seedvr2_vae_f16.ckpt`, 
 `inpainting`, default scale 24, hires-fix scale 512, u-objective condition scale 1000 and latent
 scaling factor 0.9152.
 
+The renderer exposes image-to-image `strength` with `--strength`. On Draw Things+ Bridge
+Mode, the Avedon portrait was rendered successfully with the same SeedVR2 recipe at 0.8;
+compared at native size with the strength-1.0 upscale, this reduced fine etched texture
+but softened eyes and denim too. The setting is a broad image-to-image control, not a
+SeedVR2 microtexture slider. Keep separate output directories for comparisons.
+
 `RequestBuilder.init_image()` puts an image tensor in the gRPC request, but drawthings-py 0.4
 always calls `ImageBuffer.resized(width, height, 3)`, which stretches a mismatched aspect ratio.
 Its unused `center_cropped()` helper also computes the crop against target dimensions instead

@@ -1,8 +1,11 @@
 import importlib.util
+import io
 import json
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
+from unittest.mock import patch
 
 from drawthings_py import Configs
 from PIL import Image
@@ -102,6 +105,22 @@ class ConfigurationRecipeTests(unittest.TestCase):
             loaded = dt_render.load_config_recipe(str(config))
         self.assertEqual(loaded["init_image"], str((root / "init-image.png").resolve()))
         self.assertEqual(loaded["init_fit"], "fill")
+
+    def test_strength_flag_overrides_cloud_upscale_config(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.png"
+            Image.new("RGB", (64, 64), (128, 128, 128)).save(source)
+            config = root / "config.json"
+            config.write_text(json.dumps({
+                "configuration": {"model": "seedvr2_7b_q8p.ckpt", "strength": 1.0, "seed": 42},
+            }), encoding="utf-8")
+            argv = ["dt_render.py", "--config", str(config), "--init-image", str(source),
+                    "--strength", "0.8", "--estimate-only"]
+            output = io.StringIO()
+            with patch("sys.argv", argv), redirect_stdout(output):
+                self.assertEqual(dt_render.main(), 0)
+            self.assertIn("strength 0.8", output.getvalue())
 
 
 if __name__ == "__main__":

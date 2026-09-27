@@ -665,6 +665,8 @@ def main() -> int:
     ap.add_argument("--seeds", help="literal seeds: 12345 or 12345,777 (never a count)")
     ap.add_argument("--count", type=int, help="draw this many random seeds (default 1 when --seeds is not given)")
     ap.add_argument("--steps", type=int); ap.add_argument("--cfg", type=float); ap.add_argument("--shift", type=float)
+    ap.add_argument("--strength", type=float,
+                    help="image-to-image strength, 0..1; overrides the recipe or --config value")
     ap.add_argument("--sampler")
     ap.add_argument("--resolution-dependent-shift", dest="resolution_dependent_shift", action="store_true", default=None)
     ap.add_argument("--no-resolution-dependent-shift", dest="resolution_dependent_shift", action="store_false")
@@ -768,6 +770,9 @@ def main() -> int:
     steps = args.steps if args.steps is not None else int(base.get("steps", d.get("steps", 20)))
     cfg = args.cfg if args.cfg is not None else float(base.get("guidance", d.get("cfg", 1.0)))
     shift = args.shift if args.shift is not None else float(base.get("shift", d.get("shift", 1.0)))
+    strength = args.strength if args.strength is not None else float(base.get("strength", d.get("strength", 1.0)))
+    if not 0 < strength <= 1:
+        raise SystemExit("--strength must be greater than zero and at most 1")
     sampler = normalize_sampler(args.sampler or base.get("sampler") or d.get("sampler", "EulerATrailing"))
     rds = (args.resolution_dependent_shift if args.resolution_dependent_shift is not None
            else bool(base.get("resolution_dependent_shift", d.get("resolution_dependent_shift", False))))
@@ -787,7 +792,7 @@ def main() -> int:
 
     base.update({
         "model": spec["file"], "width": width, "height": height, "steps": steps,
-        "guidance": cfg, "shift": shift, "sampler": sampler,
+        "guidance": cfg, "shift": shift, "strength": strength, "sampler": sampler,
         "resolution_dependent_shift": rds, "tiled_decoding": tiled_decode,
         "tiled_diffusion": tiled_diffusion,
         "zero_negative_prompt": zero_negative, "loras": loras,
@@ -797,7 +802,6 @@ def main() -> int:
         if key not in base and key in d:
             base[key] = d[key]
     base.setdefault("seed_mode", "ScaleAlike")
-    base.setdefault("strength", d.get("strength", 1.0))
     base.setdefault("batch_count", 1)
     base.setdefault("batch_size", 1)
     base.setdefault("controls", [])
@@ -876,7 +880,8 @@ def main() -> int:
             (out_dir / "negative.txt").write_text(negative + "\n", encoding="utf-8")
 
     tokens, exact = qwen_tokens.count(prompt)
-    print(f"{spec['file']} {width}x{height} steps {settings['steps']} cfg {settings['cfg']} shift {settings['shift']} "
+    print(f"{spec['file']} {width}x{height} steps {settings['steps']} cfg {settings['cfg']} "
+          f"strength {strength} shift {settings['shift']} "
           f"{settings['sampler']} | {len(prompt.split())} words, {tokens} tokens ({'exact' if exact else 'estimate'}) | seeds {seeds}")
     if init_info:
         print(f"init image: {init_info['source_size'][0]}x{init_info['source_size'][1]} -> {width}x{height} "
