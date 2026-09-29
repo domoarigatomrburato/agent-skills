@@ -115,6 +115,17 @@ or run-to-run variation between machines) and not known. The model card's 50 Eul
 Trailing) and 34 steps of DPM++ 2M Trailing gave practically the same image at 1536x1024 (mean
 difference 2.8 on a 0 to 255 scale at 64 px), which is why the recipe uses 34.
 
+## Z Image Turbo through the API
+
+The app has Z Image Turbo 1.0 in its zoo (`z_image_turbo_1.0_q8p.ckpt`, version `z_image`), so the
+recipe's spec is that entry: Qwen3-VL 4B Instruct q8p as text encoder, `flux_1_vae_f16.ckpt`,
+`objective` `{"u": {"condition_scale": 1000}}`, `hires_fix_scale` 24, default scale 16. It rendered
+through Bridge Mode on the first attempt at 1024x1536 (2026-09-29, four jobs of 20 to 33 s). The text
+template is `<|im_start|>user\n{prompt}<|im_end|>\n<|im_start|>assistant\n` with no length cap
+(`LocalImageGenerator.swift`); the reference pipeline caps template plus prompt at 512 tokens.
+`compute_units.py` ports `ZImageInstructionCount.swift`: about 2,000 units at 1536x1024 and 8 steps,
+not yet compared with the number the app shows.
+
 ## SeedVR2 7B image input and fill frame
 
 An app-exported 3840x2560 PNG made from a 1920x1280 input identifies the model as
@@ -157,6 +168,7 @@ further resize. This is the terminal equivalent of the app's Paste → Fill Fram
 | Qwen Image 2512, CFG 4, DPM++ 2M Trailing | 1920x1280 | 36 | 239 s | 28 s |
 | the app itself, same job as the 239 s row | 1920x1280 | 36 | 230 s | 30 s (text encoding 23 s) |
 | SeedVR2 7B, 1920x1280 init image | 3840x2560 | 1 | 108 s | 67 s |
+| Z Image Turbo, UniPC Trailing | 1024x1536 | 8 | 20 to 33 s | 6 to 14 s |
 
 No throttling across some twenty jobs in one morning. Random aborts before the first step do
 happen and are the reason for the retries. Mid-sampling drops (`No images received from server`) also happen; four in a row on one model turned out to be an incomplete spec (see SKILL.md, section 5), not the cloud.

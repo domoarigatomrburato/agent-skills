@@ -11,7 +11,8 @@ required.
 | `inquisition` | Independently review correctness, test evidence, and design; fix supported issues. |
 | `ideogram-prompt` | Ideogram 4 captions: structured JSON with magic prompt off, or plain text with magic prompt on. Ships a validator that ports Ideogram's `CaptionVerifier`. |
 | `krea-prompt` | Krea 2 and Krea 2 Turbo prompts. Ships a linter that counts tokens against the 507-token prompt budget and a size calculator for 1K and 2K. |
-| `drawthings` | Render prompts through the Draw Things app's API server: model recipes (Krea 2 Turbo and Ideogram 4 on Draw Things+ cloud compute, or local models), seed sets, retries, PNGs with a run log and a contact sheet. |
+| `z-image-prompt` | Z-Image Turbo prompts in English or Chinese, built on Tongyi-MAI's own prompt enhancer rules. Ships a linter that counts tokens against the 504-token window. |
+| `drawthings` | Render prompts through the Draw Things app's API server: model recipes (Krea 2 Turbo, Ideogram 4, Qwen Image 2512 and Z Image Turbo on Draw Things+ cloud compute, SeedVR2 upscaling, or local models), seed sets, retries, PNGs with a run log and a contact sheet. |
 
 ## Development workflow
 
@@ -42,7 +43,7 @@ Reading a skill for review does not invoke it.
 
 ## Image prompting
 
-Both prompting skills are reconstructed from the model maker's own documentation and code.
+The prompting skills are reconstructed from the model maker's own documentation and code.
 They pick the mode or the length from the brief, write the prompt, lint it, and hand over the
 settings for the delivery target: the Ideogram MCP, REST API, web app or open weights; the Krea
 app, API, MCP server, ComfyUI, fal, Draw Things or the reference CLI. API keys are read from
@@ -59,6 +60,10 @@ They land in `~/.cache/krea-prompt/tokenizer` (or under `XDG_CACHE_HOME`), where
 finds them on every run; `--tokenizer DIR` or `KREA_TOKENIZER_DIR` point at another folder.
 Without them the linter falls back to a word-based estimate calibrated on Krea's example
 prompts, within about 7% of the true count. The scripts are standard-library Python 3.8+.
+
+The Z-Image linter works the same way with Z-Image-Turbo's own tokenizer files (Qwen3), fetched
+with `python3 skills/z-image-prompt/scripts/lint_prompt.py --fetch-tokenizer` into
+`~/.cache/z-image-prompt/tokenizer` (`ZIMAGE_TOKENIZER_DIR` overrides it).
 
 ## Rendering with Draw Things
 

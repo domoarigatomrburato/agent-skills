@@ -6,6 +6,7 @@
     "./skills/inquisition",
     "./skills/ideogram-prompt",
     "./skills/krea-prompt",
+    "./skills/z-image-prompt",
     "./skills/drawthings"
   ]
 }

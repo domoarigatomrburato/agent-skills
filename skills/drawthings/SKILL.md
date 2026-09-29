@@ -1,6 +1,6 @@
 ---
 name: drawthings
-description: Generate or upscale images through the Draw Things app's gRPC API instead of operating its GUI. Picks a model recipe (including Krea 2 Turbo, Ideogram 4, Qwen Image 2512, and SeedVR2 7B), supports init images with deterministic fill-frame placement, runs one job at a time, retries and resumes flaky cloud jobs, and saves reproducible PNGs, settings, inputs, logs, and contact sheets. Use whenever the user wants to render, upscale, batch, retry, compare seeds, or log experiments with Draw Things, or mentions its API server, gRPC, Bridge Mode, cloud compute, SeedVR2, or "render it in Draw Things".
+description: Generate or upscale images through the Draw Things app's gRPC API instead of operating its GUI. Picks a model recipe (including Krea 2 Turbo, Ideogram 4, Qwen Image 2512, Z Image Turbo, and SeedVR2 7B), supports init images with deterministic fill-frame placement, runs one job at a time, retries and resumes flaky cloud jobs, and saves reproducible PNGs, settings, inputs, logs, and contact sheets. Use whenever the user wants to render, upscale, batch, retry, compare seeds, or log experiments with Draw Things, or mentions its API server, gRPC, Bridge Mode, cloud compute, SeedVR2, or "render it in Draw Things".
 ---
 
 # Draw Things API server
@@ -41,8 +41,8 @@ server.
 ## 2. Run a round
 
 Write the prompt with the model's prompting skill first (`krea-prompt` for Krea 2 Turbo,
-`ideogram-prompt` for Ideogram 4, which produces a JSON caption; plain descriptive prose for Qwen
-Image), lint or validate it, save it to a file, then:
+`ideogram-prompt` for Ideogram 4, which produces a JSON caption, `z-image-prompt` for Z Image Turbo;
+plain descriptive prose for Qwen Image), lint or validate it, save it to a file, then:
 
 ```bash
 python3 scripts/dt_render.py --recipe krea-2-turbo --prompt-file prompts/krea-2-turbo.txt \
@@ -150,6 +150,8 @@ CFG is on (guidance above 1). Reference points for the recipes:
 | qwen-image-2512 | 1536x1024 | 50 | about 31,800: the model card's step count |
 | qwen-image-2512 | 1408x1792 | 34 | about 38,800 |
 | qwen-image-2512 | 1920x1280 | 36 | about 39,700: the app showed 39,699, just under |
+| z-image-turbo | 1536x1024 | 8 | about 2,000 |
+| z-image-turbo | 2048x1152 | 8 | about 3,200 |
 
 `--estimate-only` prints the number without connecting; `--tier community` applies the lower
 limit; `DRAWTHINGS_TIER` sets the default. The formula is upstream's, with a calibration
@@ -164,6 +166,7 @@ constant they tuned on FLUX; treat a result within a few percent of the limit as
 | `krea-2-turbo` | `krea_2_turbo_i8x.ckpt` (cloud) | 8 steps, CFG 1.0, shift 3.16, DDIM Trailing, 2048x1344 | plain text from `krea-prompt` |
 | `ideogram-4` | `ideogram_4_q8p.ckpt` (cloud) | 32 steps, CFG 7, shift 2.99, DPM++ 2M Trailing, zero negative prompt on, 1920x1280: the app's own settings for "Ideogram 4 remote" | JSON caption from `ideogram-prompt`, up to 2,000 tokens |
 | `qwen-image-2512` | `qwen_image_2512_q8p.ckpt` (cloud) | 34 steps, CFG 4, shift 2.22, DPM++ 2M Trailing, the model card's negative prompt, 1536x1024. Shift follows the card's schedule by size (1024x1024 2.00, 1408x1792 2.67, 1920x1280 2.64); the recipe notes list more | plain descriptive prose; 513 tokens rendered fine |
+| `z-image-turbo` | `z_image_turbo_1.0_q8p.ckpt` (the app's built-in model; verified on the cloud 2026-09-29) | 8 steps, CFG 1, shift 3, UniPC Trailing, 1536x1024: Draw Things' official preset | prose from `z-image-prompt`, English or Chinese, up to 504 tokens |
 | `seedvr2-7b-upscale` | `seedvr2_7b_q8p.ckpt` | 1 step, CFG 1, shift 1.03, DPM++ 2M Trailing, strength 1, tiled decode + diffusion, 2x | no prompt; requires `--init-image`, fill-frame by default |
 
 A model the app already has locally needs no recipe: `--spec` with a file holding the entry

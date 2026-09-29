@@ -91,6 +91,38 @@
     },
     "notes": "Verified 2026-09-26 through Bridge Mode at 1024x704, 1536x1024 and 1920x1280. The spec is the app's own model zoo entry with every field: without `objective` and the `mmdit` activation scaling the cloud drops the job mid-sampling with 'No images received from server'. default_scale 16 is the zoo's value and renders 1920x1280. Defaults: the model card's CFG 4 and negative prompt at 34 steps DPM++ 2M Trailing, which matched the card's 50 Euler steps (DDIM Trailing here) down to fine detail at two thirds of the compute (21,648 against 31,835 units at 1536x1024, the card's 3:2 size rounded to multiples of 64). Shift follows the card's resolution-dependent schedule, exp(0.5 + 0.4 * ((W/16)*(H/16) - 256) / 7936): 1024x1024 2.00, 1344x1344 2.32, 1536x1024 2.22, 1408x1792 2.67, 1920x1280 2.64, 2048x1344 2.80. Draw Things' own preset is 30 steps, CFG 4, shift 2, UniPC Trailing. 1920x1280 at 36 steps is 39,699 units, the top of the Draw Things+ limit. The app's 1920x1280 image was reproduced through the API down to fine detail but not pixel for pixel."
   },
+  "z-image-turbo": {
+    "title": "Z Image Turbo 1.0, 8-bit (the app's built-in 'Z Image Turbo 1.0')",
+    "spec": {
+      "name": "Z Image Turbo 1.0",
+      "file": "z_image_turbo_1.0_q8p.ckpt",
+      "version": "z_image",
+      "prefix": "",
+      "default_scale": 16,
+      "hires_fix_scale": 24,
+      "text_encoder": "qwen_3_vl_4b_instruct_q8p.ckpt",
+      "autoencoder": "flux_1_vae_f16.ckpt",
+      "upcast_attention": false,
+      "high_precision_autoencoder": false,
+      "objective": {
+        "u": {
+          "condition_scale": 1000
+        }
+      }
+    },
+    "defaults": {
+      "steps": 8,
+      "cfg": 1.0,
+      "shift": 3.0,
+      "sampler": "UniPCTrailing",
+      "resolution_dependent_shift": false,
+      "zero_negative_prompt": false,
+      "size": "1536x1024",
+      "negative": ""
+    },
+    "prompt_skill": "z-image-prompt",
+    "notes": "Verified 2026-09-29 through Bridge Mode at 1024x1536: 20 to 33 s per image, first step at 6 to 14 s, about 2,000 compute units. The spec is the app's built-in zoo entry for the q8p file (ModelZoo.swift): Qwen3-VL 4B Instruct text encoder, FLUX.1 VAE, u-objective at condition scale 1000, default scale 16. Defaults are Draw Things' official preset (community-models configs/z-image-turbo-1.0): UniPC Trailing, 8 steps, CFG 1, shift 3, resolution-dependent shift off; the preset names the q6p file, the app's own list carries q8p. Guidance-free, so the negative prompt is ignored. Official sizes run to 2048 on a side (the Space's 1024, 1280 and 1536 tiers); 1536x1024 is the 1280 tier's 3:2."
+  },
   "seedvr2-7b-upscale": {
     "title": "SeedVR2 7B 2x restoration/upscale, 8-bit",
     "spec": {

@@ -167,6 +167,52 @@ def qwen_image_fixed(timesteps, batch, text_len, channels=3072, layers=60, refer
     return total
 
 
+# --- Z Image (Turbo and base) ---------------------------------------------------------
+# Port of ZImageInstructionCount / ZImageFixedInstructionCount (the app's
+# ZImageInstructionCount.swift): 30 layers of 3840 channels, 128-wide heads, SwiGLU 10,240,
+# two noise refiners on image tokens, two context refiners on text tokens, 2x2 patchify.
+
+def _round32(value: int) -> int:
+    return (value + 31) // 32 * 32
+
+
+def _zimage_block(batch, kv_len, q_len, segments, channels):
+    heads, head_dim = channels // 128, 128
+    rkv, rq = batch * kv_len, batch * q_len
+    total = 2 * dense(rkv, channels, channels) + 2 * dense(rq, channels, channels)
+    total += 2 * dense(rq, channels, 10_240) + dense(rq, 10_240, channels)
+    if len(segments) > 1 and kv_len == q_len:
+        total += sum(sdpa(batch, heads, head_dim, s, s) for s in segments)
+    else:
+        total += sdpa(batch, heads, head_dim, q_len, kv_len)
+    return total
+
+
+def zimage_main(batch, height, width, text_len, channels=3840, layers=30):
+    h, w = height // 2, width // 2
+    image_len = h * w
+    hw = _round32(image_len)
+    total = dense(batch * image_len, 2 * 2 * 16, channels)
+    total += 2 * _zimage_block(batch, hw, hw, (), channels)
+    total_len = hw + text_len
+    for i in range(layers):
+        q_len = image_len if i == layers - 1 else total_len
+        total += _zimage_block(batch, total_len, q_len, (), channels)
+    total += dense(batch * image_len, channels, 2 * 2 * 16)
+    return total
+
+
+def zimage_fixed(batch, timesteps, token_lens, channels=3840, layers=30, text_in=2560):
+    rounded = (_round32(token_lens[0]), _round32(token_lens[1]))
+    segments = rounded if rounded[0] > 0 else ()
+    total = dense(batch * sum(token_lens), text_in, channels)
+    total += dense(timesteps, 256, 1024) + dense(timesteps, 1024, 256)
+    total += 2 * _zimage_block(batch, sum(rounded), sum(rounded), segments, channels)
+    total += (2 + layers) * 4 * dense(timesteps, 256, channels)
+    total += dense(timesteps, 256, channels)
+    return total
+
+
 # --- estimate -----------------------------------------------------------------------
 
 def estimate(version: str, width: int, height: int, steps: int, cfg: float, batch_size: int = 1,
@@ -186,6 +232,9 @@ def estimate(version: str, width: int, height: int, steps: int, cfg: float, batc
     elif version == "qwen_image":
         main = qwen_image_main(1, lh, lw, text_len) * batch
         fixed = qwen_image_fixed(1, 1, text_len) * batch
+    elif version == "z_image":
+        main = zimage_main(1, lh, lw, text_len) * batch
+        fixed = zimage_fixed(1, 1, (text_len, text_len)) * batch
     else:
         return None
     units = (main * CALIBRATION * steps * max(strength, 0.05)) + fixed * CALIBRATION
@@ -200,7 +249,7 @@ def boosts_needed(units: int, threshold: int) -> int:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--version", required=True, help="model version string: krea_2, ideogram_4, qwen_image")
+    ap.add_argument("--version", required=True, help="model version string: krea_2, ideogram_4, qwen_image, z_image")
     ap.add_argument("--size", required=True, help="WxH")
     ap.add_argument("--steps", type=int, required=True)
     ap.add_argument("--cfg", type=float, default=1.0)
