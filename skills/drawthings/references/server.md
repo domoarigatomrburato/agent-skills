@@ -15,15 +15,16 @@ Mode), Cloud Compute selected in the project.
 ## Model spec fields that matter
 
 ```json
-{"name": "Krea 2 Turbo (8-bit S)", "file": "krea_2_turbo_i8x.ckpt", "version": "krea_2", "prefix": "",
+{"name": "Krea 2 Turbo", "file": "krea_2_turbo_q8p.ckpt", "version": "krea_2", "prefix": "",
  "text_encoder": "qwen_3_vl_4b_q8p.ckpt", "autoencoder": "qwen_image_vae_f16.ckpt",
- "clip_encoder": "krea_2_turbo_i8x.ckpt", "modifier": "none", "default_scale": 32, "upcast_attention": false}
+ "clip_encoder": "krea_2_turbo_q8p.ckpt", "modifier": "none", "default_scale": 32, "upcast_attention": false}
 ```
 
 - `version` is the app's `ModelVersion` raw value (`Libraries/SwiftDiffusion/Sources/Samplers/Sampler.swift`): `krea_2`, `ideogram_4`, `z_image`, `qwen_image`, `flux2`, ...
 - `text_encoder` and `autoencoder` are file names from the app's `ModelZoo.swift` hash table (`Libraries/ModelZoo/Sources/ModelZoo.swift`); cloud-only files sit there without a built-in specification, next to their text encoder. The autoencoder follows the latent layout: 16-channel models use `qwen_image_vae_f16.ckpt` or `flux_1_vae_f16.ckpt`, 32-channel (128 after 2x2 patching, the `latentsMean`/`latentsStd` arrays with 128 entries) use `flux_2_vae_f16.ckpt`.
 - `default_scale` 16 in a spec for a cloud-only model (Krea 2, Ideogram 4) caps generation at 1024 px on a side through the API; 32 allows 2048. Every size above 1024 failed at sampling step 0 with 16 and rendered with 32. For a model the zoo already has, keep the zoo's value: Qwen Image 2512's entry says 16, and with 16 it rendered 1920x1280 (as it did with 32).
-- `clip_encoder` set to the model file mirrors the app's own community entries for these architectures.
+- `clip_encoder` set to the model file mirrors the app's own community entries for these architectures. It must be the same file as `file`: a q8p model with an i8x `clip_encoder` fails before the first step.
+- File suffixes: `f16` full precision, `q8p` and `q6p` the classic 8- and 6-bit quantization, `i8x` the "8-bit S" variant (int8 matrix multiplication, added to Draw Things in March 2026 for speed on M4 and M5). On the cloud the i8x files of Ideogram 4 and Krea 2 Turbo misbehave (guidance collapse on long captions; nine images per job, one per sampling step), so the recipes use q8p.
 
 ## How the prompt is tokenized (LocalImageGenerator.swift)
 
