@@ -172,7 +172,7 @@ further resize. This is the terminal equivalent of the app's Paste → Fill Fram
 | Z Image Turbo, UniPC Trailing | 1024x1536 | 8 | 20 to 33 s | 6 to 14 s |
 
 No throttling across some twenty jobs in one morning. Random aborts before the first step do
-happen and are the reason for the retries. Mid-sampling drops (`No images received from server`) also happen; four in a row on one model turned out to be an incomplete spec (see SKILL.md, section 5), not the cloud.
+happen and are the reason for the retries. Mid-sampling drops (`No images received from server`) also happen; four in a row on one model turned out to be an incomplete spec, and every attempt of one prompt on Qwen Image 2512 turned out to be fp16 overflow that a larger FFN activation scaling fixes (see SKILL.md, section 5); neither was the cloud.
 
 ## Deriving a spec for a new cloud model
 
