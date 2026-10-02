@@ -106,6 +106,15 @@ class ConfigurationRecipeTests(unittest.TestCase):
         self.assertEqual(loaded["init_image"], str((root / "init-image.png").resolve()))
         self.assertEqual(loaded["init_fit"], "fill")
 
+    def test_tiled_decode_turns_on_above_the_recipe_threshold(self):
+        defaults = {"tiled_decode_above": 2_800_000}
+        with redirect_stdout(io.StringIO()):
+            self.assertTrue(dt_render.auto_tiled_decode(None, False, defaults, 1600, 2048))
+        self.assertFalse(dt_render.auto_tiled_decode(None, False, defaults, 2048, 1344))
+        self.assertFalse(dt_render.auto_tiled_decode(False, False, defaults, 1600, 2048))  # --no-tiled-decode wins
+        self.assertFalse(dt_render.auto_tiled_decode(None, False, {}, 1600, 2048))  # recipes without the key
+        self.assertTrue(dt_render.auto_tiled_decode(True, True, defaults, 1024, 1024))
+
     def test_strength_flag_overrides_cloud_upscale_config(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

@@ -104,6 +104,15 @@ def normalize_sampler(name: str) -> str:
     raise SystemExit(f"Unknown sampler {name!r}. Known: {', '.join(SAMPLER_NAMES)}")
 
 
+def auto_tiled_decode(flag: bool | None, tiled: bool, defaults: dict, width: int, height: int) -> bool:
+    """Tiled decoding, turned on when the recipe asks for it above a pixel count and no flag says otherwise."""
+    above = defaults.get("tiled_decode_above")
+    if flag is None and not tiled and above and width * height > above:
+        print(f"tiled decoding on: {width}x{height} is above the recipe's {above:,} pixels (tiled_decode_above)")
+        return True
+    return tiled
+
+
 def parse_size(text: str) -> tuple[int, int]:
     m = re.fullmatch(r"\s*(\d+)\s*[xX×]\s*(\d+)\s*", text)
     if not m:
@@ -778,6 +787,7 @@ def main() -> int:
            else bool(base.get("resolution_dependent_shift", d.get("resolution_dependent_shift", False))))
     tiled_decode = (args.tiled_decode if args.tiled_decode is not None
                     else bool(base.get("tiled_decoding", d.get("tiled_decode", False))))
+    tiled_decode = auto_tiled_decode(args.tiled_decode, tiled_decode, d, width, height)
     tiled_diffusion = (args.tiled_diffusion if args.tiled_diffusion is not None
                        else bool(base.get("tiled_diffusion", d.get("tiled_diffusion", False))))
     zero_negative = (args.zero_negative if args.zero_negative is not None

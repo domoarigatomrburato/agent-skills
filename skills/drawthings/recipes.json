@@ -19,10 +19,11 @@
       "shift": 3.16,
       "sampler": "DDIMTrailing",
       "resolution_dependent_shift": false,
+      "tiled_decode_above": 2800000,
       "size": "2048x1344"
     },
     "prompt_skill": "krea-prompt",
-    "notes": "Verified 2026-09-26 through Bridge Mode at 1024x704, 1152x768 and 2048x1344: about 90 s per 2K image, 15 to 50 s before the first step. Distilled: keep 8 steps and CFG 1.0; the negative prompt is ignored. Shift 3.16 is Krea's own mu=1.15; the app's preset uses Euler A Trailing with shift 3.0, which is equivalent in practice. default_scale 32 is what unlocks sizes above 1024 px on a side. The file is q8p, as in Draw Things' official Krea 2 Turbo preset: with the 8-bit S file (krea_2_turbo_i8x.ckpt) the cloud returns nine images per job, the decode of every sampling step plus the final image (the app saves all nine in the project; dt_render keeps the last), and takes longer (52 s against 31 s at 768x768, 2026-09-29). file and clip_encoder must name the same file: q8p with an i8x clip_encoder fails before the first step with 'INTERNAL: unknown error processing request'."
+    "notes": "Verified 2026-09-26 through Bridge Mode at 1024x704, 1152x768 and 2048x1344: about 90 s per 2K image, 15 to 50 s before the first step. Distilled: keep 8 steps and CFG 1.0; the negative prompt is ignored. Shift 3.16 is Krea's own mu=1.15; the app's preset uses Euler A Trailing with shift 3.0, which is equivalent in practice. default_scale 32 is what unlocks sizes above 1024 px on a side. Above 2.8 million pixels the renderer turns tiled decoding on (`tiled_decode_above`): the q8p file corrupts the final decode above about 2.9 MP (draw-things-community issue 105); on the cloud 1600x2048 came back as noise without it and clean with it (2026-10-02). The file is q8p, as in Draw Things' official Krea 2 Turbo preset: with the 8-bit S file (krea_2_turbo_i8x.ckpt) the cloud returns nine images per job, the decode of every sampling step plus the final image (the app saves all nine in the project; dt_render keeps the last), and takes longer (52 s against 31 s at 768x768, 2026-09-29). file and clip_encoder must name the same file: q8p with an i8x clip_encoder fails before the first step with 'INTERNAL: unknown error processing request'."
   },
   "ideogram-4": {
     "title": "Ideogram 4, 8-bit, Draw Things cloud compute (the app's 'Ideogram 4 remote')",
