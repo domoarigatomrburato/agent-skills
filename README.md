@@ -8,7 +8,7 @@ required.
 |---|---|
 | `grilling` | Challenge a plan through focused, consequential questions. |
 | `domain-modeling` | Clarify domain concepts and record concise, durable decisions. |
-| `inquisition` | Independently review correctness, test evidence, and design; fix supported issues. |
+| `inquisition` | Clean up a set of changes, then review the result for bugs with parallel reviewers and independent verifiers; fix supported issues. |
 | `ideogram-prompt` | Ideogram 4 captions: structured JSON with magic prompt off, or plain text with magic prompt on. Ships a validator that ports Ideogram's `CaptionVerifier`. |
 | `krea-prompt` | Krea 2 and Krea 2 Turbo prompts. Ships a linter that counts tokens against the 507-token prompt budget and a size calculator for 1K and 2K. |
 | `z-image-prompt` | Z-Image Turbo prompts in English or Chinese, built on Tongyi-MAI's own prompt enhancer rules. Ships a linter that counts tokens against the 504-token window. |
@@ -23,18 +23,26 @@ request Inquisition on the changes:
 
 > Implement feature X, then use Inquisition on the complete changes.
 
-Inquisition uses two fresh reviewers and one coordinating editor: one reviewer
-covers correctness and test evidence, the other design and efficiency. See the
-[skill's model and reasoning defaults](skills/inquisition/SKILL.md#model-and-reasoning-defaults)
-for model selection across hosts. It handles commits, revision ranges, branch
-changes, uncommitted work, or an explicitly combined scope.
-A bare invocation selects staged, unstaged, and untracked changes. Ask for
-review-only to receive findings without edits. Fixes stay within the requested
-behavior; commits, pushes, and publication require the user's authorization.
+Inquisition works in two phases with one coordinating editor. First, four fresh
+reviewers look for reuse, simplification, efficiency, and fix-depth issues, and
+the coordinator applies the behavior-preserving cleanups. Then parallel bug
+finders review the cleaned-up result from six angles, a fresh verifier judges
+every candidate, and the coordinator fixes the supported defects. A deep review,
+chosen for risky areas such as concurrency, security, or data migrations, adds
+a final gap sweep. Reviewers and verifiers run on a full-capability model at a
+reasoning effort no lower than the coordinator's.
+
+It handles commits, revision ranges, branch changes, paths, or uncommitted work.
+A bare invocation selects the current branch's changes since its merge base with
+the remote default branch, together with staged, unstaged, and untracked changes.
+Ask for review-only to receive findings without edits. Fixes stay within the
+requested behavior; commits, pushes, and publication require the user's
+authorization.
 
 There is no separate implementation skill. Inquisition requires a failing regression
 test for a testable bug it fixes, without imposing TDD on every feature or
-refactor. It reports incomplete coverage or unavailable independent review.
+refactor. It reports incomplete coverage or a single-pass review when the host
+cannot run subagents.
 
 Use `$skill-name` in Codex or `/skill-name` in Cursor and Claude Code. Codex
 invocation policy and Cursor/Claude frontmatter disable implicit activation.
