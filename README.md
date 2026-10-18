@@ -97,7 +97,7 @@ included, and prints the command that reproduces the image.
 Install from the published GitHub repository for local Cursor, Codex, and Claude:
 
 ```bash
-npx skills@latest add domoarigatomrburato/agent-skills -g --skill grilling domain-modeling inquisition ideogram-prompt krea-prompt drawthings --agent universal claude-code -y
+npx skills@latest add domoarigatomrburato/agent-skills -g --skill grilling domain-modeling inquisition ideogram-prompt krea-prompt z-image-prompt drawthings --agent universal claude-code -y
 ```
 
 Universal installs to the shared global directory used by Cursor and Codex;

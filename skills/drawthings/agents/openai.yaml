@@ -1,0 +1,5 @@
+interface:
+  display_name: "Draw Things"
+  short_description: "Render and upscale images through the Draw Things API"
+policy:
+  allow_implicit_invocation: false

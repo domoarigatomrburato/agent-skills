@@ -1,0 +1,5 @@
+interface:
+  display_name: "Ideogram Prompt"
+  short_description: "Write and validate Ideogram 4 prompts"
+policy:
+  allow_implicit_invocation: false

@@ -1,0 +1,5 @@
+interface:
+  display_name: "Krea Prompt"
+  short_description: "Write and lint Krea 2 prompts"
+policy:
+  allow_implicit_invocation: false

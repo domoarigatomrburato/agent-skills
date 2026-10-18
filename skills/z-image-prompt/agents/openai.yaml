@@ -1,0 +1,5 @@
+interface:
+  display_name: "Z-Image Prompt"
+  short_description: "Write and lint Z-Image Turbo prompts"
+policy:
+  allow_implicit_invocation: false
