@@ -87,6 +87,10 @@ shared test suite, or starts further subagents.
   model choice from the user or the repository. If the host does not let you
   set or see the model or effort, say so in the report instead of claiming
   one.
+- When the host offers a read-only agent type, limited to reading files and
+  running read-only commands, start reviewers and verifiers with it. They
+  never edit, and a smaller toolset keeps each fresh context smaller, which
+  matters when a phase starts many of them.
 - When the change is too large for one reviewer to read with care, roughly
   more than 1,000 changed lines, split it into batches of related files and
   give each batch the full set of angles, rather than sampling it. Give every
