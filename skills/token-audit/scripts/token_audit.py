@@ -1417,7 +1417,9 @@ def cmd_note(args):
 def cmd_probe(args):
     requested = None
     removed = None
-    if args.read:
+    if args.read is not None:
+        if not args.read.strip():
+            raise SystemExit("--read needs a session id, latest or current; got an empty value")
         if args.read == "current":
             current = os.environ.get(CURRENT_SESSION_VAR)
             if not current:

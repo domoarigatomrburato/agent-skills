@@ -629,6 +629,19 @@ class ProbeTests(unittest.TestCase):
         self.assertEqual(agents[0]["type"], "reviewer")
         self.assertEqual(agents[0]["prefix"], 8005)
 
+    def test_empty_read_id_is_rejected_not_a_new_probe(self):
+        for value in ("", "   "):
+            with self.subTest(value=value):
+                out = tempfile.mkdtemp(prefix="token-audit-probe-test-")
+                self.addCleanup(shutil.rmtree, out, True)
+                with patch.object(token_audit, "run_headless_probe") as headless:
+                    with self.assertRaises(SystemExit) as ctx:
+                        run(["probe", "--read", value, "--root", str(FIXTURES), "--out", out,
+                             "--label", "browser-on"])
+                self.assertIn("--read", str(ctx.exception))
+                headless.assert_not_called()
+                self.assertEqual(glob.glob(os.path.join(out, "probes", "*")), [])
+
     def test_latest_is_the_newest_started_session_with_subagents(self):
         # The older-started session was modified last (as a running session would be);
         # latest must still pick the session that started most recently.

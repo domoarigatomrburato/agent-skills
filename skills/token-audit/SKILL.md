@@ -96,7 +96,11 @@ python3 scripts/token_audit.py note "reviewer agent type for review fan-out" --d
 - **Per agent type and first-call context.** The first-call context is the fixed prefix:
   system prompt, tool schemas, CLAUDE.md files, skill listing, MCP and app tools, plus
   the first prompt. Every call of that agent reads it again. It is also split by entrypoint
-  so that Desktop and headless prefixes never mix.
+  so that Desktop and headless prefixes never mix. The Desktop app's optional tool sets
+  land here too: measured on two machines (October 2026), the browser tools added about
+  8–11k to a main session's prefix and 5–8k to a `general-purpose` subagent's, and the
+  iOS Simulator tools, where present, about 2.5k and 6.6k; agent types with a `tools:`
+  allowlist (a read-only reviewer, implementers) were unaffected.
 - **Review runs.** A subagent is a review agent when its type is `reviewer`, or when its
   description mentions review, simplify, inquisition, qualifier or verify, its type is not an
   implementer type and its description does not say fix or apply. Review agents of the same
@@ -181,14 +185,28 @@ A probe measures each agent type's first-call prefix in a session started for th
   listed in the probe file as `env_removed`); a warning after the table means the child
   still did not run as headless.
 - **Desktop (manual):** in a fresh Desktop session started in an empty folder whose name
-  begins with `token-audit-probe-` (e.g. `/tmp/token-audit-probe-desktop`, so audits skip
-  it), type:
+  begins with `token-audit-probe-` (e.g. `/private/tmp/token-audit-probe-browser-on`, so
+  audits skip it), type:
 
   > Call the Agent tool once per type, in parallel: reviewer, implementer-opus-medium, general-purpose with model opus. Give each exactly this prompt: 'Reply with the single word OK. Use no tools.' Then reply DONE.
 
   Then run `python3 scripts/token_audit.py probe --read current --label browser-on`
-  from that session, or `probe --read latest` from another one. Do one run with the
-  Desktop browser tools on and one with them off (`--label browser-on` / `browser-off`).
+  from that session, or `probe --read latest` from another one.
+- **Desktop (side session):** from a Desktop session, when the user asks for it in words,
+  Claude can start a fresh side session (`start_session`) whose working folder is an empty
+  `/private/tmp/token-audit-probe-<label>` (the real path: the app refuses symlinked paths
+  such as `/tmp`) and whose prompt is the probe text above. When it finishes, run
+  `probe --read latest --label <label>`, or pass its transcript ID. The side session's
+  brief and background add a few hundred tokens to its main session's first prompt, so
+  that main prefix reads slightly high; the subagent prefixes are not affected. The app
+  requires a background of at least 80 characters: keep it to one neutral line. A probe
+  session may make one more tool call after the first, which does not change the
+  first-call prefix.
+
+Do one Desktop run with each app tool set on and one with it off, for example
+`--label browser-on` / `browser-off`. The browser and iOS Simulator toggles are in the app's
+Settings → Claude Code; only the user can change them, and only a new session picks the
+change up.
 
 The probe sessions' transcripts stay under the projects root, in folders named after their
 `token-audit-probe-` working folder, and `audit` always skips those folders.
