@@ -97,7 +97,8 @@ included, and prints the command that reproduces the image.
 
 The `token-audit` skill reads Claude Code's transcripts in `~/.claude/projects` and reports
 where tokens go: spend by source, session, agent type and context size, review runs,
-compactions and the files re-read after them, and a replay of the compaction threshold. Its
+compactions and the files re-read after them, a replay of the compaction threshold, and
+spend per commit, per closed issue or per ticket touched, optionally for one author. Its
 script is standard-library Python 3.8+. Reports, agent prefix probes and a log of
 configuration changes are saved in `~/.claude/token-audit/`, outside any repository, because
 they contain session titles and paths.

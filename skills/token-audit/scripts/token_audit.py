@@ -3,7 +3,8 @@
 
 Usage:
     token_audit.py audit   [--projects GLOB] [--since T] [--until T] [--skip-session ID]... [--include-current]
-                           [--git REPO]... [--replay W1,W2,...] [--reread-calls N]
+                           [--git REPO]... [--issue-key PREFIX[,PREFIX]]... [--author TEXT]...
+                           [--replay W1,W2,...] [--reread-calls N]
                            [--label TEXT] [--compare OLD.json] [--root DIR] [--out DIR]
     token_audit.py compare OLD.json NEW.json [--out DIR]
     token_audit.py probe   [--agents LIST] [--model MODEL] [--label TEXT] [--timeout S] [--out DIR]
@@ -53,6 +54,7 @@ PATH_RE = re.compile(r"((?:/|\./|~/)?[\w.\-/~]+\.(swift|md|mjs|sh|json|yml|yaml|
 EDIT_TOOLS = ("Edit", "Write", "MultiEdit", "NotebookEdit")
 CLOSE_RE = re.compile(r"\b(?:close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved)\b:?\s*"
                       r"((?:[\w.-]+/[\w.-]+)?#\d+)", re.IGNORECASE)
+ISSUE_KEY_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 NOTE_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2})?$")
 CHANGE_LINE_RE = re.compile(r"^- (\d{4}-\d{2}-\d{2})(T\d{2}:\d{2})? (.+)$")
@@ -662,14 +664,47 @@ def compaction_rows(s, r, n_calls):
     return rows
 
 
-def git_metrics(repos, since, until):
-    commits = closing = 0
+def parse_issue_keys(values):
+    """Flatten repeatable, comma-separated --issue-key values into validated prefixes."""
+    keys = []
+    for value in values:
+        for part in value.split(","):
+            part = part.strip()
+            if not part:
+                continue
+            if not ISSUE_KEY_RE.match(part):
+                raise SystemExit("--issue-key %r is not a ticket prefix (uppercase letter, then "
+                                 "uppercase letters, digits or _): e.g. --issue-key IDP" % part)
+            if part not in keys:
+                keys.append(part)
+    if values and not keys:
+        raise SystemExit("--issue-key needs at least one prefix")
+    return keys
+
+
+def git_window(transcripts, since, until, until_given):
+    """Bounds for git log: a missing bound comes from the selected transcripts (None if none)."""
+    if since is None:
+        firsts = [s["first_ts"] for s in transcripts if s["first_ts"] is not None]
+        since = min(firsts) if firsts else None
+    if not until_given:
+        lasts = [s["last_ts"] or s["first_ts"] for s in transcripts if (s["last_ts"] or s["first_ts"]) is not None]
+        until = max(lasts) if lasts else None
+    return since, until
+
+
+def git_metrics(repos, since, until, authors=(), issue_keys=()):
+    """Count commits on HEAD between since and until (both required: None runs no git log)."""
+    commits = closing = ticket_commits = 0
     issues = set()
-    for repo in repos:
+    tickets = set()
+    key_re = (re.compile(r"\b(?:" + "|".join(re.escape(k) for k in issue_keys) + r")-\d+\b")
+              if issue_keys else None)
+    for repo in repos if since is not None and until is not None else []:
         cmd = ["git", "-C", repo, "log", "HEAD", "--format=%H%x00%cI%x00%B%x1e"]
-        if since is not None:
-            cmd.append("--since=" + since.replace(microsecond=0).isoformat())
+        cmd.append("--since=" + since.replace(microsecond=0).isoformat())
         cmd.append("--until=" + until.replace(microsecond=0).isoformat())
+        cmd.extend("--author=" + a for a in authors)
         proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
         if proc.returncode != 0:
             raise SystemExit("git log failed in %s: %s" % (repo, proc.stderr.strip()))
@@ -685,8 +720,18 @@ def git_metrics(repos, since, until):
                 closing += 1
             for ref in refs:
                 issues.add((os.path.abspath(repo) if ref.startswith("#") else "", ref.lower()))
-    return dict(repos=[os.path.abspath(r) for r in repos], commits=commits, closing_commits=closing,
-                closed_issues=len(issues), issues=sorted([list(x) for x in issues]))
+            if key_re is not None:
+                keys = key_re.findall(body)
+                if keys:
+                    ticket_commits += 1
+                    tickets.update(keys)  # a ticket key is global: deduplicated across repositories
+    out = dict(repos=[os.path.abspath(r) for r in repos], since=iso(since), until=iso(until),
+               authors=list(authors), issue_keys=list(issue_keys), commits=commits, closing_commits=closing,
+               closed_issues=len(issues), issues=sorted([list(x) for x in issues]),
+               tickets_touched=None, ticket_commits=None, tickets=None)
+    if key_re is not None:
+        out.update(tickets_touched=len(tickets), ticket_commits=ticket_commits, tickets=sorted(tickets))
+    return out
 
 
 # ---------------------------------------------------------------- audit
@@ -852,9 +897,11 @@ def build_report(transcripts, args, since, until, until_whole):
 
     git = None
     if args.git:
-        git = git_metrics(args.git, since, until)
+        git_since, git_until = git_window(transcripts, since, until, bool(args.until))
+        git = git_metrics(args.git, git_since, git_until, args.author, args.issue_keys)
         git["ite_per_commit"] = grand / git["commits"] if git["commits"] else None
         git["ite_per_issue"] = grand / git["closed_issues"] if git["closed_issues"] else None
+        git["ite_per_ticket"] = grand / git["tickets_touched"] if git["tickets_touched"] else None
 
     main_rows = []
     comp_by_session = collections.Counter()
@@ -883,7 +930,8 @@ def build_report(transcripts, args, since, until, until_whole):
                     since_date=local_date(since) if since is not None else None,
                     until_date=local_date(until), days=days),
         args=dict(projects=args.projects, since=args.since, until=args.until, skip_session=list(args.skip_session),
-                  include_current=args.include_current, git=list(args.git), replay=args.replay, reread_calls=args.reread_calls, label=args.label,
+                  include_current=args.include_current, git=list(args.git), author=list(args.author),
+                  issue_key=list(args.issue_key), replay=args.replay, reread_calls=args.reread_calls, label=args.label,
                   root=args.root, compare=args.compare),
         selection=selection, spend=spend,
         bands=dict(all=band_all, main=band_main), share_300k=dict(all=high_all, main=high_main),
@@ -1029,12 +1077,20 @@ def render_report(rep):
     if g is None:
         L.append("no --git repository given")
     else:
+        L.append("HEAD commits from %s to %s; author filter: %s"
+                 % (g.get("since") or "-", g.get("until") or "-",
+                    ", ".join(g.get("authors") or []) or "none"))
         L.append("commits %d, closing commits %d, distinct closed issues %d"
                  % (g["commits"], g["closing_commits"], g["closed_issues"]))
+        if g.get("issue_keys"):
+            L.append("tickets touched %d (prefixes %s), commits mentioning one %d"
+                     % (g["tickets_touched"], ", ".join(g["issue_keys"]), g["ticket_commits"]))
         if g["ite_per_commit"] is not None:
             L.append("ITE per commit %s" % tok(g["ite_per_commit"]))
         if g["ite_per_issue"] is not None:
             L.append("ITE per closed issue %s" % tok(g["ite_per_issue"]))
+        if g.get("ite_per_ticket") is not None:
+            L.append("ITE per ticket touched %s" % tok(g["ite_per_ticket"]))
     return "\n".join(L) + "\n"
 
 
@@ -1068,6 +1124,8 @@ def metrics(rep):
     g = rep.get("git")
     out["ITE per commit"] = (g["ite_per_commit"] if g else None, "n")
     out["ITE per closed issue"] = (g["ite_per_issue"] if g else None, "n")
+    if g and g.get("issue_keys"):
+        out["ITE per ticket touched"] = (g.get("ite_per_ticket"), "n")
     out["average main context"] = (sp["main"]["avg_ctx"] if sp["main"]["calls"] else None, "n")
     out["share >= 300k (all)"] = (rep["share_300k"]["all"], "share")
     out["share >= 300k (main)"] = (rep["share_300k"]["main"], "share")
@@ -1106,6 +1164,18 @@ def value_text(v, unit):
     return tok(v)
 
 
+def git_filters(rep):
+    g = rep.get("git") or {}
+    return (tuple(sorted(g.get("repos") or [])), tuple(sorted(g.get("authors") or [])),
+            tuple(sorted(g.get("issue_keys") or [])))
+
+
+def git_filters_text(rep):
+    repos, authors, keys = git_filters(rep)
+    return "repos %s, authors %s, issue keys %s" % (", ".join(repos) or "none", ", ".join(authors) or "none",
+                                                     ", ".join(keys) or "none")
+
+
 def compare_reports(old, new, changes):
     """Return (text, rows) where rows are (label, old, new) for metrics present in both."""
     L = ["Comparison: %s -> %s" % (old.get("name"), new.get("name"))]
@@ -1116,6 +1186,9 @@ def compare_reports(old, new, changes):
     if set(oe) != set(ne):
         L.append("WARNING: main-session entrypoint mixes differ (old: %s; new: %s): compare like with like."
                  % (counts(oe), counts(ne)))
+    if git_filters(old) != git_filters(new):
+        L.append("WARNING: git repositories, author filters or issue-key prefixes differ (old: %s; new: %s): "
+                 "compare like with like." % (git_filters_text(old), git_filters_text(new)))
     om, nm = metrics(old), metrics(new)
     rows = []
     L.append("%-52s %10s %10s %10s" % ("metric", "old", "new", "change"))
@@ -1279,6 +1352,7 @@ def render_probe(p):
 # ---------------------------------------------------------------- commands
 
 def cmd_audit(args):
+    args.issue_keys = parse_issue_keys(args.issue_key)
     since = None
     if args.since:
         since, _ = parse_bound(args.since, end=False)
@@ -1391,7 +1465,14 @@ def parser():
                    help="drop transcripts whose path contains ID (repeatable)")
     a.add_argument("--include-current", action="store_true",
                    help="count the running session (%s), which is skipped by default" % CURRENT_SESSION_VAR)
-    a.add_argument("--git", action="append", default=[], metavar="REPO", help="git repository for commit metrics")
+    a.add_argument("--git", action="append", default=[], metavar="REPO",
+                   help="git repository for commit metrics, HEAD only (repeatable); a missing --since / "
+                        "--until is taken from the selected transcripts")
+    a.add_argument("--issue-key", action="append", default=[], metavar="PREFIX",
+                   help="ticket-key prefix such as IDP, counts tickets touched as PREFIX-123 "
+                        "(repeatable or comma list)")
+    a.add_argument("--author", action="append", default=[], metavar="TEXT",
+                   help="count only commits whose author matches TEXT, passed to git log --author (repeatable)")
     a.add_argument("--replay", default=DEFAULT_REPLAY, help="autoCompactWindow values; the first is the reference")
     a.add_argument("--reread-calls", type=int, default=20, metavar="N",
                    help="calls after a compaction counted for re-reads (default 20)")

@@ -1,6 +1,6 @@
 ---
 name: token-audit
-description: Measure Claude Code token spend from the local transcripts. Reports input-token equivalents by source, session, agent type and context size; review runs and their fixed-prefix share; compactions and the files re-read after them; a replay of the compaction threshold; attribution by tool family; spend per commit and per closed issue. Also probes each agent type's first-call prefix and compares saved reports against a log of configuration changes. Use only when the user explicitly requests the Token Audit skill.
+description: Measure Claude Code token spend from the local transcripts. Reports input-token equivalents by source, session, agent type and context size; review runs and their fixed-prefix share; compactions and the files re-read after them; a replay of the compaction threshold; attribution by tool family; spend per commit, per closed issue and per ticket touched. Also probes each agent type's first-call prefix and compares saved reports against a log of configuration changes. Use only when the user explicitly requests the Token Audit skill.
 disable-model-invocation: true
 ---
 
@@ -36,7 +36,7 @@ The script skips the running session by itself: Claude Code exports its ID as
 ```bash
 python3 scripts/token_audit.py audit --projects '-Users-me-code-myapp*' \
   --since 2026-10-19 --until 2026-10-26 \
-  --git ~/code/myapp --label after-reviewer \
+  --git ~/code/myapp --author me@example.com --issue-key APP --label after-reviewer \
   --compare ~/.claude/token-audit/reports/2026-10-08_2026-10-18.json
 ```
 
@@ -47,7 +47,23 @@ python3 scripts/token_audit.py audit --projects '-Users-me-code-myapp*' \
   ISO timestamp. A transcript, main session or subagent, counts when its first event
   falls in the window. Events after `--until` are ignored, so re-running a past window
   gives the same numbers later. The default is everything up to now.
-- `--git REPO` (repeatable) counts the commits in the window and the issues they close.
+- `--git REPO` (repeatable) counts the commits in the window and the issues they close
+  (`Closes #12`, `Fixes owner/repo#13`). It reads only `HEAD`: commits on other branches
+  are missed, so run it on the branch that collects the work, or merge first. Without
+  `--since` the commits start at the first event of the selected transcripts, and without
+  `--until` they end at the last one (not now); with no transcript selected and a bound
+  missing, it counts no commits. The report prints the bounds used.
+- `--issue-key PREFIX` (repeatable, or a comma list such as `--issue-key IDP,IW`) counts
+  ticket keys such as `IDP-123` anywhere in the commit messages, for trackers like Jira.
+  A prefix is an uppercase letter followed by uppercase letters, digits or `_`; keys are
+  case-sensitive and deduplicated across repositories. There is no generic key pattern
+  because one would match `UTF-8`, `SHA-256` or `ISO-8601`. A ticket counts as touched,
+  not closed: a key in a commit does not mean the ticket is done. The ticket figures appear
+  only with this option.
+- `--author TEXT` (repeatable) counts only commits whose author name or e-mail contains
+  TEXT (passed to `git log --author`; several values match any of them). It applies to
+  commits, closed issues and tickets; spend stays the window's total. The report prints the
+  filter, or `none`.
 - `--label` is appended to the report name. `--compare OLD.json` prints the comparison and saves
   it next to the new report.
 - `--replay 600000,400000,300000` sets the `autoCompactWindow` values to replay; the first
@@ -103,8 +119,10 @@ python3 scripts/token_audit.py note "reviewer agent type for review fan-out" --d
   then read by every later call of its segment. Characters become tokens with a ratio calibrated on the
   window itself (`uncalibrated` means it fell back to 3.5). The rollup shows which tools
   fill the context, and the total exceeds direct spend because the model is approximate.
-- **ITE per commit and per closed issue.** These normalise for windows of different length
-  and workload. Prefer them, and the per-session figures, over totals.
+- **ITE per commit, per closed issue and per ticket touched.** These normalise for windows
+  of different length and workload. Prefer them, and the per-session figures, over totals.
+  With `--author` they count only your own commits against the window's whole spend, so
+  they give the cost of your own work instead of being diluted by other people's commits.
 
 ## 4. Levers, ranked by the effect measured so far
 
@@ -142,7 +160,8 @@ frontmatter are not affected by the setting.
 
 Desktop sessions carry the app's own tools and connectors, so their prefixes are much larger
 than headless ones. Compare reports from the same host and the same entrypoint mix;
-`compare` warns when either differs. Prefer per-session, per-commit and per-issue figures
+`compare` warns when either differs, and when the git repositories, author filters or
+issue-key prefixes differ. Prefer per-session, per-commit and per-issue figures
 over totals. Read the changes-log entries that `compare` lists between the two reports;
 entries marked `inside new window` happened during the new window and only partly apply
 to it.

@@ -370,6 +370,139 @@ class GitTests(AuditCase):
         self.assertAlmostEqual(g["ite_per_issue"], 133329 / 2)
 
 
+@unittest.skipIf(shutil.which("git") is None, "git is not installed")
+class GitWindowTicketAuthorTests(AuditCase):
+    # Selected transcripts of -Users-test-proj* without --since / --until: S2 starts at
+    # 2026-09-30T12:00Z, S1's last call C7 is at 2026-10-14T09:00Z.
+    FIRST = "2026-09-30T12:00:00+00:00"
+    LAST = "2026-10-14T09:00:00+00:00"
+
+    def setUp(self):
+        super().setUp()
+        self.repo = tempfile.mkdtemp(prefix="token-audit-git-")
+        self.addCleanup(shutil.rmtree, self.repo, True)
+        self.git("init", "-q")
+        self.commit("alice", "2026-09-01T12:00:00+00:00", "IDP-1 old work")
+        self.commit("alice", "2026-10-01T12:00:00+00:00", "IDP-12 fix login", "Closes #5")
+        self.commit("bob", "2026-10-09T12:00:00+00:00", "Refs IW-7 and IDP-12")
+        self.commit("alice", "2026-10-10T12:00:00+00:00", "Use UTF-8 and SHA-256 with ISO-8601 dates")
+        self.commit("alice", "2026-10-10T13:00:00+00:00", "XIDP-4 and IDPX-5 decoys, IW-7")
+        self.commit("alice", "2026-10-16T12:00:00+00:00", "IDP-99 after the transcripts")
+
+    def git(self, *args, author="t", date=None):
+        env = dict(os.environ, GIT_AUTHOR_NAME=author, GIT_AUTHOR_EMAIL=author + "@example.com",
+                   GIT_COMMITTER_NAME=author, GIT_COMMITTER_EMAIL=author + "@example.com")
+        if date:
+            env["GIT_AUTHOR_DATE"] = date
+            env["GIT_COMMITTER_DATE"] = date
+        subprocess.run(["git", "-C", self.repo] + list(args), check=True, env=env,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    def commit(self, author, date, *messages):
+        args = ["commit", "-q", "--allow-empty"]
+        for m in messages:
+            args += ["-m", m]
+        self.git(*args, author=author, date=date)
+
+    def unbounded(self, *extra, projects="-Users-test-proj*"):
+        """Audit without --since / --until (the audit() helper always passes --since)."""
+        out = tempfile.mkdtemp(prefix="token-audit-test-")
+        self.addCleanup(shutil.rmtree, out, True)
+        code, text = run(["audit", "--root", str(FIXTURES), "--out", out, "--projects", projects,
+                          "--git", self.repo] + list(extra))
+        self.assertEqual(code, 0, text)
+        reports = sorted(glob.glob(os.path.join(out, "reports", "*.json")))
+        self.assertEqual(len(reports), 1, reports)
+        with open(reports[0]) as fh:
+            return json.load(fh), text, reports[0]
+
+    def test_git_window_is_clamped_to_the_transcripts(self):
+        report, text, _ = self.unbounded()
+        g = report["git"]
+        # 09-01 is before S2's first event and 10-16 after C7: 10-01, 10-09, 10-10T12, 10-10T13.
+        self.assertEqual(g["commits"], 4)
+        self.assertEqual(token_audit.parse_ts(g["since"]), token_audit.parse_ts(self.FIRST))
+        self.assertEqual(token_audit.parse_ts(g["until"]), token_audit.parse_ts(self.LAST))
+        self.assertIn(g["since"], text)
+        self.assertIn(g["until"], text)
+
+    def test_no_transcripts_and_no_bounds_count_no_commits(self):
+        report, _, _ = self.unbounded(projects="-Users-nothing-here*")
+        g = report["git"]
+        self.assertEqual(g["commits"], 0)
+        self.assertIsNone(g["since"])
+        self.assertIsNone(g["until"])
+
+    def test_tickets_touched(self):
+        report, text, _ = self.unbounded("--issue-key", "IDP", "--issue-key", "IW")
+        g = report["git"]
+        # In the window: 10-01 IDP-12, 10-09 IW-7 + IDP-12, 10-10T13 IW-7 (XIDP-4 and IDPX-5 are
+        # not keys: no word boundary before IDP / no dash after IDP). UTF-8, SHA-256 and ISO-8601
+        # never count. Distinct tickets {IDP-12, IW-7}; 3 commits mention one.
+        self.assertEqual(g["issue_keys"], ["IDP", "IW"])
+        self.assertEqual(g["tickets"], ["IDP-12", "IW-7"])
+        self.assertEqual(g["tickets_touched"], 2)
+        self.assertEqual(g["ticket_commits"], 3)
+        self.assertEqual(g["closed_issues"], 1)  # #5
+        self.assertEqual(g["closing_commits"], 1)
+        self.assertAlmostEqual(g["ite_per_ticket"], report["spend"]["all"]["ite"] / 2)
+        self.assertIn("tickets touched", text)
+        self.assertIn("ITE per ticket touched", text)
+        comma, _, _ = self.unbounded("--issue-key", "IDP,IW")
+        for key in ("issue_keys", "tickets", "tickets_touched", "ticket_commits", "ite_per_ticket"):
+            self.assertEqual(comma["git"][key], g[key], key)
+        self.assertIn("ITE per ticket touched", token_audit.metrics(report))
+
+    def test_without_issue_keys_there_are_no_ticket_figures(self):
+        report, text, _ = self.unbounded()
+        g = report["git"]
+        for key in ("tickets_touched", "ticket_commits", "tickets", "ite_per_ticket"):
+            self.assertIsNone(g.get(key), key)
+        self.assertNotIn("ticket", text.split("== Git ==")[1])
+        self.assertNotIn("ITE per ticket touched", token_audit.metrics(report))
+        # Closing keywords as before: only 10-01 closes #5.
+        self.assertEqual(g["closing_commits"], 1)
+        self.assertEqual(g["closed_issues"], 1)
+        self.assertAlmostEqual(g["ite_per_commit"], report["spend"]["all"]["ite"] / 4)
+        self.assertAlmostEqual(g["ite_per_issue"], report["spend"]["all"]["ite"])
+        self.assertIn("author filter: none", text)
+
+    def test_author_filter(self):
+        report, text, _ = self.unbounded("--author", "alice", "--issue-key", "IDP", "--issue-key", "IW")
+        g = report["git"]
+        # alice in the window: 10-01 (IDP-12, Closes #5), 10-10T12 (no key), 10-10T13 (IW-7).
+        self.assertEqual(g["authors"], ["alice"])
+        self.assertEqual(g["commits"], 3)
+        self.assertEqual(g["tickets"], ["IDP-12", "IW-7"])
+        self.assertEqual(g["tickets_touched"], 2)
+        self.assertEqual(g["ticket_commits"], 2)
+        self.assertEqual(g["closed_issues"], 1)
+        grand = report["spend"]["all"]["ite"]
+        self.assertAlmostEqual(g["ite_per_commit"], grand / 3)
+        self.assertAlmostEqual(g["ite_per_ticket"], grand / 2)
+        self.assertIn("author filter: alice", text)
+
+    def test_invalid_issue_key_prefix_is_rejected(self):
+        for bad in ("idp", "I-D", "IDP,i"):
+            with self.assertRaises(SystemExit) as cm:
+                run(["audit", "--root", str(FIXTURES), "--out", self.out, "--projects", "-Users-test-proj*",
+                     "--git", self.repo, "--issue-key", bad])
+            # A clear error naming the option, not argparse's generic exit status.
+            self.assertIn("--issue-key", str(cm.exception.code), bad)
+
+    def test_compare_warns_when_git_filters_differ(self):
+        _, _, plain = self.unbounded("--label", "plain")
+        _, _, mine = self.unbounded("--label", "mine", "--author", "alice")
+        _, _, again = self.unbounded("--label", "again")
+        old, new, same = (token_audit.load_report(p) for p in (plain, mine, again))
+        text, _ = token_audit.compare_reports(old, new, [])
+        warnings = [l for l in text.splitlines() if l.startswith("WARNING:")]
+        self.assertEqual(len(warnings), 1, text)
+        self.assertIn("git", warnings[0])
+        text, _ = token_audit.compare_reports(old, same, [])
+        self.assertNotIn("WARNING", text)
+
+
 class ChangesLogAndCompareTests(AuditCase):
     def make_report(self, since, until, label):
         code, text = run(["audit", "--root", str(FIXTURES), "--out", self.out,
