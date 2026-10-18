@@ -7,6 +7,7 @@
     "./skills/ideogram-prompt",
     "./skills/krea-prompt",
     "./skills/z-image-prompt",
-    "./skills/drawthings"
+    "./skills/drawthings",
+    "./skills/token-audit"
   ]
 }

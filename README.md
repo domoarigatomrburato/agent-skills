@@ -13,6 +13,7 @@ required.
 | `krea-prompt` | Krea 2 and Krea 2 Turbo prompts. Ships a linter that counts tokens against the 507-token prompt budget and a size calculator for 1K and 2K. |
 | `z-image-prompt` | Z-Image Turbo prompts in English or Chinese, built on Tongyi-MAI's own prompt enhancer rules. Ships a linter that counts tokens against the 504-token window. |
 | `drawthings` | Render prompts through the Draw Things app's API server: model recipes (Krea 2 Turbo, Ideogram 4, Qwen Image 2512 and Z Image Turbo on Draw Things+ cloud compute, SeedVR2 upscaling, or local models), seed sets, retries, PNGs with a run log and a contact sheet. |
+| `token-audit` | Measure Claude Code token spend from local transcripts: spend by source, session, agent type and context size, review runs, compactions and re-reads, a compaction-threshold replay, agent prefix probes, and comparisons between saved reports. |
 
 ## Development workflow
 
@@ -92,12 +93,27 @@ over the tier limit, so a 48-step 2K Ideogram job is stopped locally instead of 
 `png_config.py` reads the settings and prompt out of any Draw Things PNG, the app's own exports
 included, and prints the command that reproduces the image.
 
+## Token audit
+
+The `token-audit` skill reads Claude Code's transcripts in `~/.claude/projects` and reports
+where tokens go: spend by source, session, agent type and context size, review runs,
+compactions and the files re-read after them, and a replay of the compaction threshold. Its
+script is standard-library Python 3.8+. Reports, agent prefix probes and a log of
+configuration changes are saved in `~/.claude/token-audit/`, outside any repository, because
+they contain session titles and paths.
+
 ## Install
 
 Install from the published GitHub repository for local Cursor, Codex, and Claude:
 
 ```bash
-npx skills@latest add domoarigatomrburato/agent-skills -g --skill grilling domain-modeling inquisition ideogram-prompt krea-prompt z-image-prompt drawthings --agent universal claude-code -y
+npx skills@latest add domoarigatomrburato/agent-skills -g --skill grilling domain-modeling inquisition ideogram-prompt krea-prompt z-image-prompt drawthings token-audit --agent universal claude-code -y
+```
+
+On a machine that needs only the token audit:
+
+```bash
+npx skills@latest add domoarigatomrburato/agent-skills -g --skill token-audit --agent universal claude-code -y
 ```
 
 Universal installs to the shared global directory used by Cursor and Codex;

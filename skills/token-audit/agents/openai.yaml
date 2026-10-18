@@ -1,0 +1,5 @@
+interface:
+  display_name: "Token Audit"
+  short_description: "Measure Claude Code token spend from local transcripts"
+policy:
+  allow_implicit_invocation: false
