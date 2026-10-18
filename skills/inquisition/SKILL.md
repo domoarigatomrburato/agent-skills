@@ -1,7 +1,6 @@
 ---
 name: inquisition
 description: Clean up a set of changes, then review the cleaned-up result for bugs. Parallel reviewers look for reuse, simplification, efficiency, and fix-depth issues, and the coordinator applies the behavior-preserving fixes; then parallel bug finders review the result, an independent verifier checks every candidate, and the coordinator fixes supported defects. Use only when the user explicitly requests the Inquisition skill.
-disable-model-invocation: true
 ---
 
 # Inquisition
