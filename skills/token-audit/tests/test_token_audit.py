@@ -287,7 +287,7 @@ class ReviewAgentRuleTests(AuditCase):
         sub = os.path.join(root, "-p", "parent", "subagents")
         agents = [("agent-r1", "reviewer", "Review: correctness"),
                   ("agent-g1", "general-purpose", "Simplify review: reuse"),
-                  ("agent-i1", "implementer-opus-high", "Simplify fixes: X"),
+                  ("agent-i1", "implementer", "Simplify fixes: X"),
                   ("agent-g2", "general-purpose", "Apply code-review fixes")]
         for i, (name, kind, desc) in enumerate(agents):
             write_events(os.path.join(sub, name + ".jsonl"), [
@@ -660,11 +660,37 @@ class ProbeTests(unittest.TestCase):
 
     def test_probe_prompt(self):
         self.assertEqual(
-            token_audit.probe_prompt(["reviewer", "implementer-opus-medium", "general-purpose:opus"]),
-            "Call the Agent tool once per type, in parallel: reviewer, implementer-opus-medium, "
-            "general-purpose with model opus. Give each exactly this prompt: 'Reply with the single "
-            "word OK. Use no tools.' Then reply DONE.")
+            token_audit.probe_prompt(["reviewer", "implementer:opus:medium", "general-purpose:opus"]),
+            "Call the Agent tool once per type, in parallel: reviewer, implementer with model opus and "
+            "effort medium, general-purpose with model opus. Give each exactly this prompt: 'Reply with "
+            "the single word OK. Use no tools.' Then reply DONE.")
         self.assertIn("a with model sonnet", token_audit.probe_prompt(["a:sonnet"]))
+        self.assertIn("a with model sonnet and effort high", token_audit.probe_prompt(["a:sonnet:high"]))
+
+    def test_probe_prompt_rejects_malformed_entries(self):
+        for entry in ("a:b:c:d", "a:", ":opus", "a::medium", "a:opus:", ":", " :opus", "a: :medium"):
+            with self.subTest(entry=entry):
+                with self.assertRaises(SystemExit) as ctx:
+                    token_audit.probe_prompt(["reviewer", entry])
+                self.assertIn("--agents entry %r: expected type, type:model or type:model:effort" % entry,
+                              str(ctx.exception))
+
+    def test_skill_quotes_the_default_probe_prompt(self):
+        with open(SKILL / "SKILL.md") as fh:
+            quoted = [line[len("  > "):].rstrip("\n") for line in fh if line.startswith("  > Call the Agent tool")]
+        self.assertEqual(quoted, [token_audit.probe_prompt(token_audit.DEFAULT_AGENTS.split(","))])
+
+    def test_probe_reports_a_three_field_entry_as_missing_by_its_type(self):
+        out = tempfile.mkdtemp(prefix="token-audit-probe-test-")
+        self.addCleanup(shutil.rmtree, out, True)
+        path = token_audit.find_session(str(FIXTURES), S1)
+        with patch.object(token_audit, "run_headless_probe", return_value=(path, [])):
+            code, text = run(["probe", "--agents", "reviewer,implementer:opus:medium", "--out", out])
+        self.assertEqual(code, 0, text)
+        with open(glob.glob(os.path.join(out, "probes", "*.json"))[0]) as fh:
+            probe = json.load(fh)
+        self.assertEqual(probe["missing"], ["implementer"])
+        self.assertIn("missing (requested but no subagent): implementer", text)
 
 
 class CalibrationTests(unittest.TestCase):

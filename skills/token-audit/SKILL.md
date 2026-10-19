@@ -176,19 +176,19 @@ A probe measures each agent type's first-call prefix in a session started for th
 
 - **Headless:** `python3 scripts/token_audit.py probe` runs `claude -p` in a fresh empty
   temporary folder and asks it to start one subagent per type (default
-  `reviewer,implementer-opus-medium,general-purpose:opus`; `--agents` takes `type` or
-  `type:model`, `--model` sets the main session's model). Then it reads the new session's
-  transcript and removes the folder. It records each agent's prefix and model, the main
-  session's prefix, the CLI version, and any requested type that started no subagent.
-  Run it from a plain terminal when possible. From inside a Claude session the script
-  removes the session's inherited variables before starting `claude -p` (their names are
-  listed in the probe file as `env_removed`); a warning after the table means the child
-  still did not run as headless.
+  `reviewer,implementer:opus:medium,general-purpose:opus`; `--agents` takes `type`,
+  `type:model` or `type:model:effort`, `--model` sets the main session's model). Then it
+  reads the new session's transcript and removes the folder. It records each agent's
+  prefix and model, the main session's prefix, the CLI version, and any requested type
+  that started no subagent. Run it from a plain terminal when possible. From inside a
+  Claude session the script removes the session's inherited variables before starting
+  `claude -p` (their names are listed in the probe file as `env_removed`); a warning after
+  the table means the child still did not run as headless.
 - **Desktop (manual):** in a fresh Desktop session started in an empty folder whose name
   begins with `token-audit-probe-` (e.g. `/private/tmp/token-audit-probe-browser-on`, so
   audits skip it), type:
 
-  > Call the Agent tool once per type, in parallel: reviewer, implementer-opus-medium, general-purpose with model opus. Give each exactly this prompt: 'Reply with the single word OK. Use no tools.' Then reply DONE.
+  > Call the Agent tool once per type, in parallel: reviewer, implementer with model opus and effort medium, general-purpose with model opus. Give each exactly this prompt: 'Reply with the single word OK. Use no tools.' Then reply DONE.
 
   Then run `python3 scripts/token_audit.py probe --read current --label browser-on`
   from that session, or `probe --read latest` from another one.

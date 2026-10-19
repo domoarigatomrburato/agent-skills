@@ -69,7 +69,7 @@ PROBE_ENV_NAMES = ("CLAUDECODE", "CLAUDE_PID", "CLAUDE_EFFORT")
 PROBE_ENV_KEEP = ("CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY",
                   "CLAUDE_CODE_SKIP_BEDROCK_AUTH", "CLAUDE_CODE_SKIP_VERTEX_AUTH",
                   "CLAUDE_CODE_SKIP_FOUNDRY_AUTH", "CLAUDE_CODE_OAUTH_TOKEN")
-DEFAULT_AGENTS = "reviewer,implementer-opus-medium,general-purpose:opus"
+DEFAULT_AGENTS = "reviewer,implementer:opus:medium,general-purpose:opus"
 TOP_SESSIONS = 15
 TOP_FAMILIES = 25
 TOP_RUNS = 20
@@ -1229,11 +1229,15 @@ def load_report(path):
 def probe_prompt(agents):
     parts = []
     for a in agents:
-        if ":" in a:
-            t, m = a.split(":", 1)
-            parts.append("%s with model %s" % (t, m))
+        fields = [f.strip() for f in a.split(":")]
+        if not 1 <= len(fields) <= 3 or not all(fields):
+            raise SystemExit("--agents entry %r: expected type, type:model or type:model:effort" % a)
+        if len(fields) == 3:
+            parts.append("%s with model %s and effort %s" % tuple(fields))
+        elif len(fields) == 2:
+            parts.append("%s with model %s" % tuple(fields))
         else:
-            parts.append(a)
+            parts.append(fields[0])
     return ("Call the Agent tool once per type, in parallel: " + ", ".join(parts) +
             ". Give each exactly this prompt: 'Reply with the single word OK. Use no tools.' Then reply DONE.")
 
@@ -1491,7 +1495,7 @@ def parser():
     c.set_defaults(func=cmd_compare)
 
     p = sub.add_parser("probe", help="measure each agent type's first-call prefix")
-    p.add_argument("--agents", default=DEFAULT_AGENTS, help="comma list of type or type:model")
+    p.add_argument("--agents", default=DEFAULT_AGENTS, help="comma list of type, type:model or type:model:effort")
     p.add_argument("--model", default="opus", help="main session model (default opus)")
     p.add_argument("--timeout", type=float, default=900, help="seconds (default 900)")
     p.add_argument("--read", metavar="SESSION_ID|current|latest",
