@@ -47,9 +47,9 @@ cannot run subagents.
 
 Use `$skill-name` in Codex or `/skill-name` in Cursor and Claude Code. Codex
 invocation policy and Cursor/Claude frontmatter disable implicit activation.
-Inquisition alone omits `disable-model-invocation`, so in Cursor and Claude Code
-a request in words ("start the inquisition") also loads it; its description still
-limits it to explicit requests.
+Inquisition and Token Audit omit `disable-model-invocation`, so in Cursor and
+Claude Code a request in words ("start the inquisition") also loads them; their
+descriptions still limit them to explicit requests.
 Repository rules govern ordinary development even when no skill is invoked.
 Reading a skill for review does not invoke it.
 

@@ -1,7 +1,6 @@
 ---
 name: token-audit
 description: Measure Claude Code token spend from the local transcripts. Reports input-token equivalents by source, session, agent type and context size; review runs and their fixed-prefix share; compactions and the files re-read after them; a replay of the compaction threshold; attribution by tool family; spend per commit, per closed issue and per ticket touched. Also probes each agent type's first-call prefix and compares saved reports against a log of configuration changes. Use only when the user explicitly requests the Token Audit skill.
-disable-model-invocation: true
 ---
 
 # Token audit
