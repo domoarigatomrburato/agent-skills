@@ -1,6 +1,6 @@
 ---
 name: inquisition
-description: Clean up a set of changes, then review the cleaned-up result for bugs. Parallel reviewers look for reuse, simplification, efficiency, and fix-depth issues, and the coordinator applies the behavior-preserving fixes; then parallel bug finders review the result, an independent verifier checks every candidate, and the coordinator fixes supported defects. Use only when the user explicitly requests the Inquisition skill.
+description: Clean up a set of changes, then review the cleaned-up result for bugs, mirroring Claude Code's /simplify followed by /code-review. Four parallel reviewers first look for reuse, simplification, efficiency, and fix-depth issues, and the coordinator applies the behavior-preserving fixes. The depth of the bug review then follows a review level (low, medium, high, xhigh, or max), taken from the coordinator's reasoning effort unless the user names one; lower levels run the review angles in the coordinator's own context, and only the max level adds parallel finders, independent verification of every candidate, and a gap sweep. The coordinator fixes the supported defects. Use only when the user explicitly requests the Inquisition skill.
 ---
 
 # Inquisition
@@ -10,12 +10,13 @@ Challenge a completed set of changes in two phases, in this order:
 1. **Clean up.** Find code that duplicates what the codebase already has, is
    more complex or slower than it needs to be, or patches a symptom instead of
    the cause, and fix it without changing behavior.
-2. **Review for bugs.** Review the cleaned-up result for defects, verify each
-   candidate independently, and fix the supported ones.
+2. **Review for bugs.** Review the cleaned-up result for defects at the review
+   level, and fix the supported ones.
 
 The order matters. Reviewing for bugs after the cleanup means the review reads
 the code that will actually ship, and catches defects the cleanup itself
-introduced.
+introduced. The two phases mirror Claude Code's `/simplify` followed by
+`/code-review` at the review level, rewritten for any agent host.
 
 ## Scope and authority
 
@@ -44,10 +45,10 @@ before acting on its findings.
 
 An explicit request authorizes behavior-preserving cleanup and localized fixes
 to the requested behavior. Honor narrower constraints. On a review-only
-request, edit nothing: since no edits separate the phases, start the reviewers
-of both phases together on the change as it is, and report the Phase 1
-findings as proposals. The skill never authorizes commits, pushes, pull or
-merge requests, publication, or destructive Git operations.
+request, edit nothing: since no edits separate the phases, run both phases on
+the change as it is, starting Phase 2 together with the Phase 1 reviewers, and
+report the cleanup findings as proposals. The skill never authorizes commits,
+pushes, pull or merge requests, publication, or destructive Git operations.
 
 If the change cannot alter behavior, such as comments, formatting, or
 documentation that no program or agent reads as instructions, review it
@@ -67,15 +68,15 @@ shared test suite, or starts further subagents.
 - Label each reviewer and verifier with its role and what it covers, so
   progress lists read clearly. The Phase 1 reviewers are "Inquisitor: Reuse",
   "Inquisitor: Simplification", "Inquisitor: Efficiency", and
-  "Inquisitor: Fix depth". A Phase 2 finder is "Inquisitor: " followed by its
-  angle, such as "Inquisitor: Line by line" or "Inquisitor: Removed behavior".
-  A verifier is "Qualifier: " followed by a short summary of what it judges,
-  such as "Qualifier: Missing await in loadUser". The gap sweep of a deep
-  review is "Grand Inquisitor". On a batched review, add the batch, such as
-  "Inquisitor: Reuse, batch 2". Keep the angle or the candidate in every
-  label; the gap sweep runs once, so its name is enough. The theme is for
-  labels only: the report and anything written to the repository stay plainly
-  worded. Hosts that do not display agent names can ignore this rule.
+  "Inquisitor: Fix depth". A Phase 2 finder at the max level is
+  "Inquisitor: " followed by its angle, such as "Inquisitor: Line by line" or
+  "Inquisitor: Removed behavior". A verifier is "Qualifier: " followed by a
+  short summary of what it judges, such as "Qualifier: Missing await in
+  loadUser". The gap sweep at the max level is "Grand Inquisitor". Keep the
+  angle or the candidate in every label; the gap sweep runs once, so its name
+  is enough. The theme is for labels only: the report and anything written to
+  the repository stay plainly worded. Hosts that do not display agent names
+  can ignore this rule.
 - Each reviewer ends with a one-line coverage note: what it read, and what it
   skipped or could not read. No findings is a valid result. A reviewer that
   needs a test or command run asks the coordinator for it.
@@ -90,23 +91,41 @@ shared test suite, or starts further subagents.
   running read-only commands, start reviewers and verifiers with it. They
   never edit, and a smaller toolset keeps each fresh context smaller, which
   matters when a phase starts many of them.
-- When the change is too large for one reviewer to read with care, roughly
-  more than 1,000 changed lines, split it into batches of related files and
-  give each batch the full set of angles, rather than sampling it. Give every
-  batch the complete file list, so a reviewer can check whether something it
-  misses in its batch moved to another file. If the batches would make a phase
-  start more than 24 reviewers, say how many and ask whether to narrow the
-  scope before starting them.
-- If the host cannot run subagents, work through every angle yourself, one at
-  a time, and verify each candidate yourself against the code before keeping
-  it. Say in the report that the review was single-pass, so nobody mistakes it
-  for an independent review.
+- If the host cannot run subagents, perform every angle and every
+  verification yourself, sequentially, in your own context. Say in the report
+  that the review was single-pass, so nobody mistakes it for an independent
+  review.
+
+## Review level
+
+The review level sets how deep Phase 2 goes. It is one of `low`, `medium`,
+`high`, `xhigh`, or `max`, resolved in this order:
+
+1. a level the user names in the request;
+2. otherwise your own reasoning effort, when the host exposes it, with a host
+   value of `minimal` or `none` read as `low`;
+3. otherwise `high`.
+
+`medium` runs the `high` structure. The level changes only Phase 2: Phase 1
+starts the same four reviewers at every level.
+
+| Level | Phase 2 structure | Subagents started in Phase 2 |
+| --- | --- | --- |
+| `low` | One pass over the diff by the coordinator | 0 |
+| `medium`, `high` | 9 angles run by the coordinator | 0 |
+| `xhigh` | 11 angles and a gap sweep run by the coordinator | 0 |
+| `max` | 11 finders, per-candidate verifiers, a sweep | 12 + 1 per candidate |
+
+At `max`, each candidate the sweep adds gets its own verifier too. The Tests
+angle is the one addition to the `/code-review` recipe, kept because it
+surfaces defects the tests would let through; it does not run at `low`.
 
 ## Phase 1: Clean up
 
-Start four reviewers, one per angle. Each returns findings with file, line, a
-one-line summary, and the concrete cost: what is duplicated, wasted, or harder
-to maintain.
+Start four reviewers, one per angle, at every level. Give each the whole
+comparison and the complete file list. Each returns findings with file, line,
+a one-line summary, and the concrete cost: what is duplicated, wasted, or
+harder to maintain.
 
 ### Reuse
 
@@ -151,46 +170,42 @@ obvious, revert that cleanup and record it as skipped.
 The cleanup patch is the difference between each saved copy and the current
 file, plus each file Phase 1 created: the Phase 1 edits and nothing else, even
 when the checkout holds other uncommitted work. Write it to a file outside the
-repository, so that Phase 2 reviewers can read it by path: for example with
-`diff -uN` from each saved copy to the current file, which treats a deleted
-file as empty, and from `/dev/null` to each created file.
+repository, so that Phase 2 can read it by path: for example with `diff -uN`
+from each saved copy to the current file, which treats a deleted file as
+empty, and from `/dev/null` to each created file.
 
 ## Phase 2: Review for bugs
 
 Review the same scope again, now including the Phase 1 edits. When the scope
 ends at the working tree, the recorded comparison already contains them. When
-it ends at a commit, give the reviewers the recorded comparison, to be read at
-its end revision (for example with `git show <revision>:<path>`), and the
-cleanup patch file, with the working tree for the context around its hunks;
-later changes in the checkout stay out of scope. Add every file Phase 1
-touched to the file list. Choose the depth before starting:
+it ends at a commit, read the recorded comparison at its end revision (for
+example with `git show <revision>:<path>`) and the cleanup patch file, with
+the working tree for the context around its hunks; at the max level, give
+both to every finder and verifier. Later changes in the checkout stay out of
+scope. Add every file Phase 1 touched to the file list.
 
-- **Standard**, the default: six finder angles, up to 6 candidates each.
-- **Deep**: up to 8 candidates per angle, plus a final gap sweep. Use it when
-  the user asks for it, or when the change touches concurrency or task
-  lifecycles, authentication, authorization, secrets, untrusted input,
-  persistence schemas or data migrations, or published APIs and wire formats.
-  When it is unclear whether the change touches one of these areas, choose
-  deep.
+Run the subsection for the review level. The angles and the gap sweep are
+defined once below; each level lists which it runs and its caps.
 
-### Find
+### Angles
 
-Start one finder per angle. Each returns candidates with file, line, a
-one-line summary, and a failure scenario: the input or state that triggers the
-defect and the wrong result it produces. Finders report every candidate with a
-nameable failure scenario, even when unsure; verification decides, and
-candidates dropped silently at this stage are the main source of missed bugs.
-The cap applies per angle and per batch: put the strongest candidates first
-and name any beyond the cap in one line each rather than dropping them.
+Each angle returns candidates with file, line, a one-line summary, the angle
+that produced it, and a failure scenario: the input or state that triggers the
+defect and the wrong result it produces. Cleanup, fix-depth, and conventions
+candidates state the concrete cost instead: what is duplicated, wasted, or
+harder to maintain, or which rule is broken. Report every candidate with a
+nameable failure scenario, even when unsure; candidates dropped silently at
+this stage are the main source of missed bugs. Put the strongest candidates
+first and name any beyond the angle's cap in one line each rather than
+dropping them. Do not let one angle's conclusions suppress another's: if two
+angles flag the same line for different reasons, record both.
 
 - **A. Line by line.** Read every hunk and the whole function around it; bugs
   in unchanged lines of a touched function count. For each line ask what
   input, state, timing, or platform makes it wrong: inverted conditions,
   off-by-one errors, missing null checks, a zero treated as missing, a missing
   `await`, the wrong variable after copy-paste, errors swallowed instead of
-  propagated, unescaped patterns. Also compare the change with each
-  requirement of the original request, and report behavior that is required
-  but missing or different, with the input and the expected result.
+  propagated, unescaped patterns.
 - **B. Removed behavior.** For every deleted or replaced line, name the
   guarantee it provided and find where the new code provides it again. If
   nowhere, that is a candidate: a dropped guard, error path, validation, or
@@ -198,22 +213,25 @@ and name any beyond the cap in one line each rather than dropping them.
 - **C. Callers and callees.** For every changed function, find its callers and
   check that the change breaks none of them: a new precondition, a different
   return shape, a new error, an ordering or timing dependency. Check that the
-  calls the change makes are still safe given the rest of the change. When the
-  change adds or modifies a type that wraps another, such as a cache, proxy,
-  decorator, or adapter, check that every method calls the wrapped instance
-  instead of going back through a registry, session, or global lookup, which
-  re-enters the wrapper or recurses, and that the wrapper forwards every
-  method its callers use.
+  calls the change makes are still safe given the rest of the change.
 - **D. Language pitfalls.** The classic traps of the languages and frameworks
   involved, such as type coercion, a loop variable captured by a closure,
-  mutable default arguments, time zones and daylight saving, and float
-  equality. Report only instances the change introduces.
-- **E. Tests.** Whether the tests exercise the changed behavior and would fail
+  late-binding closures, mutable default arguments, a write to a nil map,
+  queries built by string concatenation, time zones and daylight saving, and
+  float equality. Report only instances the change introduces.
+- **E. Wrappers and proxies.** When the change adds or modifies a type that
+  wraps another, such as a cache, proxy, decorator, or adapter, check that
+  every method calls the wrapped instance instead of going back through a
+  registry, session, or global lookup, which re-enters the wrapper or
+  recurses, and that the wrapper forwards every method its callers use.
+- **F. Tests.** Whether the tests exercise the changed behavior and would fail
   if it broke: tests that only exercise mocks, assertions that mirror the
   implementation, and failure paths or boundaries the change adds without a
   test. Say which checks were not run.
-- **F. Conventions.** The instruction files that govern the changed files:
-  the user-level files the host loads, such as `~/.claude/CLAUDE.md` or
+- **Reuse, Simplification, Efficiency, Fix depth.** The Phase 1 angles, as
+  defined there, applied to the code after Phase 1.
+- **Conventions.** The instruction files that govern the changed files: the
+  user-level files the host loads, such as `~/.claude/CLAUDE.md` or
   `~/.codex/AGENTS.md`, and the repository's files, such as `AGENTS.md`,
   `CLAUDE.md`, `CONTRIBUTING.md`, and editor rule files, at the root and in
   parent directories of a changed file. A file in a directory governs only the
@@ -221,12 +239,77 @@ and name any beyond the cap in one line each rather than dropping them.
   file and quoting the rule and the line that breaks it. If no instruction
   file applies, return nothing.
 
-### Verify
+Where a cap forces a cut, correctness findings outrank cleanup, fix-depth, and
+conventions findings.
 
-Merge candidates that describe the same defect at the same place. Then give
-each remaining candidate to a fresh verifier, with the change and the files
-involved; when there are many, a verifier may take up to three candidates on
-the same file. The verifier returns one verdict per candidate:
+### Gap sweep
+
+A final pass by a fresh reviewer that holds the list of findings so far. It
+rereads the change and the functions around it looking only for defects not
+already listed, without re-deriving or re-confirming anything on the list. It
+focuses on what the first pass tends to miss: moved or extracted code that
+lost a guard or a pattern anchor, narrowed lock scopes, a default evaluated
+once and then shared, such as a dataclass field default, hash values or
+iteration order assumed stable across runs, predicate methods with side
+effects, setup and teardown mismatches in tests, and changed configuration
+defaults. It returns up to 8 new candidates, or none when it finds nothing
+new; it does not pad.
+
+### Low
+
+Work alone, in one pass over the diff: start no subagents and read no whole
+files. Skip test and fixture hunks, under `test/`, `spec/`, `__tests__/`,
+`fixtures/`, or `testdata/`, or in files named `*_test.*` or `*.test.*`: test
+changes are not reviewed at this level.
+
+Flag only runtime-correctness defects visible from the hunk alone: an inverted
+or wrong condition, an off-by-one error, a null or undefined dereference where
+adjacent lines show the value can be absent, a removed guard, a zero treated
+as missing, a missing `await`, the wrong variable after copy-paste, or an error
+swallowed where it should propagate. Also flag, still from the hunk alone, new
+code that duplicates a helper visible in the diff context, and dead code the
+change leaves behind. Flag nothing else: no style, naming, performance,
+missing tests, or anything outside the hunk.
+
+Keep at most 4 findings, most severe first.
+
+### Medium and high
+
+Run nine angles, A, B, C, F, Reuse, Simplification, Efficiency, Fix depth, and
+Conventions, yourself, in sequence, in your own context; start no subagents.
+Each angle surfaces up to 6 candidates.
+
+Pool the candidates and merge only near-duplicates: the same defect at the
+same place for the same reason. Do not verify or re-judge them at this step.
+Sort by severity.
+
+Aim for at least 5 findings; when fewer genuine ones exist, keep what you have
+rather than inventing more. Keep at most 10, the most severe.
+
+### Xhigh
+
+Run all eleven angles, A to F, Reuse, Simplification, Efficiency, Fix depth,
+and Conventions, yourself, in sequence, in your own context; start no
+subagents. Each angle surfaces up to 8 candidates.
+
+Pool the candidates and merge only near-duplicates: the same defect at the
+same place for the same reason. Do not verify or re-judge them, and do not
+drop any on uncertainty. Sort by severity.
+
+Then run the gap sweep yourself, in the same context, with the merged list.
+
+Aim for at least 7 findings; when fewer genuine ones exist, keep what you have
+rather than inventing more. Keep at most 15, the most severe.
+
+### Max
+
+Start eleven finders together, one per angle: A to F, Reuse, Simplification,
+Efficiency, Fix depth, and Conventions. Each surfaces up to 8 candidates.
+
+Merge candidates that point at the same line or mechanism, keeping the one
+with the most concrete failure scenario. Then give each remaining candidate to
+its own fresh verifier, with the change and the files involved. The verifier
+returns one verdict:
 
 - **Confirmed**: it can name the input or state that triggers the defect and
   the wrong result, quoting the line.
@@ -239,27 +322,25 @@ the same file. The verifier returns one verdict per candidate:
   impossible, the change already handles it, or the issue has no observable
   effect. It quotes the line that proves it.
 
-For a test finding (angle E), confirmed means naming a plausible defect in the
-changed behavior that the tests would let through. For a convention finding
-(angle F), it means quoting a rule that applies to the file and the line that
-breaks it.
+For a test finding (angle F), confirmed means naming a plausible defect in the
+changed behavior that the tests would let through. For a conventions finding,
+it means quoting a rule that applies to the file and the line that breaks it.
 
-Keep confirmed and plausible candidates and drop refuted ones.
+Keep confirmed and plausible candidates and drop refuted ones: a single vote
+that is not refuted carries the finding. Do not drop on uncertainty.
 
-On a deep review, run one more finder in a fresh context with the kept and the
-refuted candidates, so it does not raise them again. It rereads the change
-looking only for defects not already listed, such as moved or extracted code
-that lost a guard or a pattern anchor, narrowed lock scopes, a default
-evaluated once and then shared, such as a dataclass field default, hash values
-or iteration order assumed stable across runs, predicate methods with side
-effects, setup and teardown mismatches in tests, and changed configuration
-defaults. It returns up to 8 new candidates, or none when it finds nothing
-new. Verify what it finds the same way.
+Then start one more reviewer for the gap sweep, in a fresh context, with the
+kept findings. Give each candidate it returns its own verifier, the same way.
+
+Keep at most 15 findings, the most severe.
 
 ## Fix and check
 
-Reread the code behind each kept finding before acting on it. Rank findings by
-impact and evidence, not by how many reviewers raised them.
+Reread the code behind each kept finding before acting on it. Below the max
+level nothing has been verified independently, so this reread replaces
+verification: judge each finding against the code as a verifier would, and
+drop the ones the code refutes, recording why. Rank findings by impact and
+evidence, not by how many angles raised them.
 
 - Fix confirmed defects within your authority. For a testable bug, write a
   regression test that fails before the fix and passes after it.
@@ -268,25 +349,29 @@ impact and evidence, not by how many reviewers raised them.
 - Add the missing test when a test finding matters, keeping its expectations
   independent of the implementation, and fix convention breaches in the
   changed lines.
+- Apply Phase 2 cleanup and fix-depth findings under the same rules as Phase
+  1's Apply section.
 - Report instead of fixing anything that needs a product decision or edits
   beyond your authority.
 
-Then run the repository's applicable checks on the final state, reread the
-final diff for regressions, scope creep, and leftovers, and give any material
-fix whose correctness is not obvious to a fresh verifier. Do not repeat both
-phases. Follow the repository's retry limits and report checks that still
-fail.
+Then run the repository's applicable checks on the final state and reread the
+final diff for regressions, scope creep, and leftovers. At the max level, also
+give any material fix whose correctness is not obvious to a fresh verifier. Do
+not repeat both phases. Follow the repository's retry limits and report checks
+that still fail.
 
 ## Report
 
 Keep the report proportional to the change:
 
-- the scope: the comparison, the files, and whether it was batched;
-- what ran: the depth, the number of reviewers and verifiers and their models,
-  or that the review was single-pass;
+- the scope: the comparison and the files;
+- what ran: the review level and where it came from, named by the user, your
+  reasoning effort, or the default; the number of subagents started and their
+  models; or that the review was single-pass;
 - cleanup: what was fixed, and what was skipped and why, or, on a review-only
   run, what is proposed;
-- bugs: each kept finding with its verdict, and whether it was fixed;
+- bugs: each kept finding with its verdict, from a verifier at the max level
+  or from your own judgment below it, and whether it was fixed;
 - the checks actually run and their results, and those not run;
 - remaining risks, open decisions, and what the coverage notes say was not
   read.
