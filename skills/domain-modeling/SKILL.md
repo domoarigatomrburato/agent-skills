@@ -1,7 +1,6 @@
 ---
 name: domain-modeling
 description: Clarify domain vocabulary, relationships, and durable decisions. Use only when the user explicitly requests Domain Modeling.
-disable-model-invocation: true
 ---
 
 # Domain Modeling

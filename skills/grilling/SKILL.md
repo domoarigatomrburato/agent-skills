@@ -1,7 +1,6 @@
 ---
 name: grilling
 description: Challenge a plan or decision through focused questions. Use only when the user explicitly requests Grilling or asks to be grilled.
-disable-model-invocation: true
 ---
 
 # Grilling

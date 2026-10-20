@@ -1,7 +1,6 @@
 ---
 name: z-image-prompt
 description: Write, lint and deliver prompts for Z-Image Turbo (Z Image Turbo 1.0, "ZIT") from Tongyi-MAI (Alibaba), in English or Chinese, then hand over the right settings for Draw Things, Diffusers, ComfyUI or the official Hugging Face Space. It covers the official prompt enhancer's rules, text rendering in quotes, bilingual prompts, the 512-token window, official resolutions, sampler settings and iteration. Use only when the user explicitly requests the Z-Image Prompt skill.
-disable-model-invocation: true
 ---
 
 # Z-Image Turbo prompting

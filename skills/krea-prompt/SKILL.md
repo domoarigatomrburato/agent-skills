@@ -1,7 +1,6 @@
 ---
 name: krea-prompt
 description: Write, lint and deliver text prompts for Krea 2 Turbo and the other Krea 2 models (Raw, Medium, Large) from Krea AI, then hand over the right settings for Draw Things, the Krea app, the Krea API or MCP server, ComfyUI or the open weights. It covers prompt structure, text rendering with quotes, creativity and prompt expansion, aspect ratios and 1K/2K sizes, sampler settings, LoRAs and iteration. Use only when the user explicitly requests the Krea Prompt skill.
-disable-model-invocation: true
 ---
 
 # Krea 2 prompting

@@ -1,7 +1,6 @@
 ---
 name: drawthings
 description: Generate or upscale images through the Draw Things app's gRPC API instead of operating its GUI. Picks a model recipe (including Krea 2 Turbo, Ideogram 4, Qwen Image 2512, Z Image Turbo, and SeedVR2 7B), supports init images with deterministic fill-frame placement, runs one job at a time, retries and resumes flaky cloud jobs, and saves reproducible PNGs, settings, inputs, logs, and contact sheets. Use only when the user explicitly requests the Draw Things skill.
-disable-model-invocation: true
 ---
 
 # Draw Things API server

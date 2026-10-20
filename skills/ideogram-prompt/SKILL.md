@@ -5,7 +5,6 @@ description: >
   structured JSON caption (magic prompt off, exact control over text, palette and layout) or
   plain text (magic prompt on, exploratory). Picks the mode for the brief, or asks when unsure.
   Use only when the user explicitly requests the Ideogram Prompt skill.
-disable-model-invocation: true
 ---
 
 # Ideogram 4 prompting
