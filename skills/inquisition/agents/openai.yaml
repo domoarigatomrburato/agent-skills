@@ -1,6 +1,6 @@
 interface:
   display_name: "Inquisition"
   short_description: "Clean up changes, then review them for bugs and fix them"
-  default_prompt: "Use $inquisition on the complete changes: clean them up first, then review the cleaned-up result for bugs at the review level that matches your effort, and fix the supported ones."
+  default_prompt: "Use $inquisition on the complete changes: clean them up first, then review the cleaned-up result for bugs, and fix the supported ones."
 policy:
   allow_implicit_invocation: false

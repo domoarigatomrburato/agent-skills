@@ -1,6 +1,6 @@
 ---
 name: inquisition
-description: Clean up a set of changes, then review the cleaned-up result for bugs, mirroring Claude Code's /simplify followed by /code-review. Four parallel reviewers first look for reuse, simplification, efficiency, and fix-depth issues, and the coordinator applies the behavior-preserving fixes. The depth of the bug review then follows a review level (low, medium, high, xhigh, or max), taken from the coordinator's reasoning effort unless the user names one; lower levels run the review angles in the coordinator's own context, and only the max level adds parallel finders, independent verification of every candidate, and a gap sweep. The coordinator fixes the supported defects. Use only when the user explicitly requests the Inquisition skill.
+description: Clean up a set of changes, then review the cleaned-up result for bugs, mirroring the angles and caps of Claude Code's /simplify followed by /code-review. Four parallel reviewers first look for reuse, simplification, efficiency, and fix-depth issues, and the coordinator applies the behavior-preserving fixes. The depth of the bug review then follows a review level (low, medium, high, xhigh, or max) that the user names, or high by default. At low the coordinator reviews the diff itself; at medium, high, and xhigh one read-only reviewer subagent runs the review angles, keeping the coordinator's context small and the review independent; only the max level adds parallel finders, independent verification of every candidate, and a gap sweep. The coordinator fixes the supported defects. Use only when the user explicitly requests the Inquisition skill.
 ---
 
 # Inquisition
@@ -15,8 +15,11 @@ Challenge a completed set of changes in two phases, in this order:
 
 The order matters. Reviewing for bugs after the cleanup means the review reads
 the code that will actually ship, and catches defects the cleanup itself
-introduced. The two phases mirror Claude Code's `/simplify` followed by
-`/code-review` at the review level, rewritten for any agent host.
+introduced. The two phases mirror the angles and caps of Claude Code's
+`/simplify` followed by `/code-review` at the review level, rewritten for any
+agent host. From `medium` to `xhigh`, Phase 2 runs in one reviewer subagent, to
+keep the coordinator's context small and the bug review independent of the
+agent that applied the cleanups.
 
 ## Scope and authority
 
@@ -64,29 +67,38 @@ shared test suite, or starts further subagents.
   the exact comparison, the file list, its task, and the output it must
   return. Pass paths, not file contents: they read what their task needs. Do
   not pass the implementation conversation or, to a reviewer, other
-  reviewers' findings.
+  reviewers' findings. Their task is defined in this file: when the host lets
+  you give the path of this skill file, pass it with the names of the sections
+  to follow; otherwise copy those sections verbatim, never paraphrased, since
+  the rules that drive recall live in the details. Also pass the paths of the
+  instruction files the host loaded for you, such as `~/.claude/CLAUDE.md` and
+  the files it imports, so the Conventions angle can read them.
 - Label each reviewer and verifier with its role and what it covers, so
   progress lists read clearly. The Phase 1 reviewers are "Inquisitor: Reuse",
   "Inquisitor: Simplification", "Inquisitor: Efficiency", and
-  "Inquisitor: Fix depth". A Phase 2 finder at the max level is
-  "Inquisitor: " followed by its angle, such as "Inquisitor: Line by line" or
-  "Inquisitor: Removed behavior". A verifier is "Qualifier: " followed by a
-  short summary of what it judges, such as "Qualifier: Missing await in
-  loadUser". The gap sweep at the max level is "Grand Inquisitor". Keep the
-  angle or the candidate in every label; the gap sweep runs once, so its name
-  is enough. The theme is for labels only: the report and anything written to
-  the repository stay plainly worded. Hosts that do not display agent names
-  can ignore this rule.
+  "Inquisitor: Fix depth". The Phase 2 reviewer at the `medium`, `high`, and
+  `xhigh` levels is "Inquisitor: Bug review". A Phase 2 finder at the max
+  level is "Inquisitor: " followed by its angle, such as "Inquisitor: Line by
+  line" or "Inquisitor: Removed behavior". A verifier is "Qualifier: "
+  followed by a short summary of what it judges, such as "Qualifier: Missing
+  await in loadUser". The gap sweep at the max level is "Grand Inquisitor".
+  Keep the angle or the candidate in every label; the Phase 2 reviewer and the
+  gap sweep run once, so their names are enough. The theme is for labels
+  only: the report and anything written to the repository stay plainly
+  worded. Hosts that do not display agent names can ignore this rule.
 - Each reviewer ends with a one-line coverage note: what it read, and what it
-  skipped or could not read. No findings is a valid result. A reviewer that
-  needs a test or command run asks the coordinator for it.
+  skipped or could not read; the Phase 2 reviewer gives one such line per
+  angle, and one for the gap sweep at `xhigh`. No findings is a valid result. A
+  reviewer that needs a test or command run asks the coordinator for it.
 - Start the reviewers of a phase together, so they run in parallel. If the
   host limits concurrency, run them in turn, each in a fresh context.
-- Use a full-capability model, at a reasoning effort no lower than your own,
-  for reviewers and verifiers; never a lightweight or fast variant. Follow any
-  model choice from the user or the repository. If the host does not let you
-  set or see the model or effort, say so in the report instead of claiming
-  one.
+- Use a full-capability model for reviewers and verifiers; never a
+  lightweight or fast variant. Do not set their reasoning effort from your own
+  reading of your effort or per-turn budget, for the reason given in Review
+  level: let them inherit the session's effort or, when the host needs a
+  value, use `high` or above. Follow any model or effort choice from the user
+  or the repository. If the host does not let you set or see the model or
+  effort, say so in the report instead of claiming one.
 - When the host offers a read-only agent type, limited to reading files and
   running read-only commands, start reviewers and verifiers with it. They
   never edit, and a smaller toolset keeps each fresh context smaller, which
@@ -99,12 +111,16 @@ shared test suite, or starts further subagents.
 ## Review level
 
 The review level sets how deep Phase 2 goes. It is one of `low`, `medium`,
-`high`, `xhigh`, or `max`, resolved in this order:
+`high`, `xhigh`, or `max`, resolved this way:
 
-1. a level the user names in the request;
-2. otherwise your own reasoning effort, when the host exposes it, with a host
-   value of `minimal` or `none` read as `low`;
-3. otherwise `high`.
+1. the level the user names in the request;
+2. otherwise `high`.
+
+Never infer the level from your own reasoning effort or per-turn reasoning
+budget: hosts do not reliably expose the session's effort, and a short turn's
+budget can read lower than it. `xhigh` and `max` run only when the user names
+them. Before Phase 2, state the level and its source in one line, such as
+`Review level: high (default)` or `Review level: xhigh (named by the user)`.
 
 `medium` runs the `high` structure. The level changes only Phase 2: Phase 1
 starts the same four reviewers at every level.
@@ -112,9 +128,15 @@ starts the same four reviewers at every level.
 | Level | Phase 2 structure | Subagents started in Phase 2 |
 | --- | --- | --- |
 | `low` | One pass over the diff by the coordinator | 0 |
-| `medium`, `high` | 9 angles run by the coordinator | 0 |
-| `xhigh` | 11 angles and a gap sweep run by the coordinator | 0 |
+| `medium`, `high` | 9 angles run by one reviewer subagent | 1 |
+| `xhigh` | 11 angles and a gap sweep run by one reviewer subagent | 1 |
 | `max` | 11 finders, per-candidate verifiers, a sweep | 12 + 1 per candidate |
+
+From `medium` to `xhigh` the angles read whole functions; running them in one
+subagent keeps those reads out of the coordinator's context for every later
+turn, and keeps the review independent of the agent that applied the
+cleanups. At `low` the review reads only the hunks, so a subagent would cost
+more than it saves.
 
 At `max`, each candidate the sweep adds gets its own verifier too. The Tests
 angle is the one addition to the `/code-review` recipe, kept because it
@@ -180,12 +202,30 @@ Review the same scope again, now including the Phase 1 edits. When the scope
 ends at the working tree, the recorded comparison already contains them. When
 it ends at a commit, read the recorded comparison at its end revision (for
 example with `git show <revision>:<path>`) and the cleanup patch file, with
-the working tree for the context around its hunks; at the max level, give
-both to every finder and verifier. Later changes in the checkout stay out of
-scope. Add every file Phase 1 touched to the file list.
+the working tree for the context around its hunks. Later changes in the
+checkout stay out of scope. Add every file Phase 1 touched to the file list.
+
+Give every Phase 2 subagent, the reviewer at the `medium`, `high`, and `xhigh`
+levels or each finder and verifier at the max level, the path of the cleanup
+patch file, or say that there is none, on a review-only run or when Phase 1
+changed nothing. When the scope ends at a commit, pass the reading rule above
+too.
 
 Run the subsection for the review level. The angles and the gap sweep are
 defined once below; each level lists which it runs and its caps.
+
+At the `medium`, `high`, and `xhigh` levels, start one fresh reviewer, the
+Phase 2 reviewer, with the host's read-only agent type when there is one. Its
+prompt carries the original request, the exact comparison and, when it ends at
+a commit, the reading rule above, the file list including the files Phase 1
+touched, the cleanup patch path or that there is none, the level with the
+definitions of its angles (the Angles section and, for the four cleanup
+angles, their Phase 1 subsections), the gap sweep at `xhigh`, and its caps,
+passed as Reviewers says, and the output format. It runs the angles in
+sequence in its own context, pools, merges, sorts, and caps the candidates as
+the level says, and returns only the candidate list, the one-line mentions of
+candidates beyond a cap, and its per-angle coverage notes. Its context ends
+with the review; only that list reaches yours.
 
 ### Angles
 
@@ -244,16 +284,17 @@ conventions findings.
 
 ### Gap sweep
 
-A final pass by a fresh reviewer that holds the list of findings so far. It
-rereads the change and the functions around it looking only for defects not
-already listed, without re-deriving or re-confirming anything on the list. It
-focuses on what the first pass tends to miss: moved or extracted code that
-lost a guard or a pattern anchor, narrowed lock scopes, a default evaluated
-once and then shared, such as a dataclass field default, hash values or
-iteration order assumed stable across runs, predicate methods with side
-effects, setup and teardown mismatches in tests, and changed configuration
-defaults. It returns up to 8 new candidates, or none when it finds nothing
-new; it does not pad.
+A final pass that holds the list of findings so far: at the max level by a
+fresh reviewer, at the `xhigh` level by the Phase 2 reviewer, in its own
+context, after pooling. It rereads the change and the functions around it
+looking only for defects not already listed, without re-deriving or
+re-confirming anything on the list. It focuses on what the first pass tends
+to miss: moved or extracted code that lost a guard or a pattern anchor,
+narrowed lock scopes, a default evaluated once and then shared, such as a
+dataclass field default, hash values or iteration order assumed stable across
+runs, predicate methods with side effects, setup and teardown mismatches in
+tests, and changed configuration defaults. It returns up to 8 new candidates,
+or none when it finds nothing new; it does not pad.
 
 ### Low
 
@@ -275,31 +316,34 @@ Keep at most 4 findings, most severe first.
 
 ### Medium and high
 
-Run nine angles, A, B, C, F, Reuse, Simplification, Efficiency, Fix depth, and
-Conventions, yourself, in sequence, in your own context; start no subagents.
-Each angle surfaces up to 6 candidates.
+The Phase 2 reviewer runs nine angles, A, B, C, F, Reuse, Simplification,
+Efficiency, Fix depth, and Conventions, in sequence, in its own context. Each
+angle surfaces up to 6 candidates. Without subagents, follow the rule in
+Reviewers and run them yourself.
 
-Pool the candidates and merge only near-duplicates: the same defect at the
-same place for the same reason. Do not verify or re-judge them at this step.
-Sort by severity.
+The reviewer pools the candidates and merges only near-duplicates: the same
+defect at the same place for the same reason. It does not verify or re-judge
+them at this step. It sorts them by severity.
 
-Aim for at least 5 findings; when fewer genuine ones exist, keep what you have
-rather than inventing more. Keep at most 10, the most severe.
+It aims for at least 5 findings; when fewer genuine ones exist, it keeps what
+it has rather than inventing more. It keeps at most 10, the most severe.
 
 ### Xhigh
 
-Run all eleven angles, A to F, Reuse, Simplification, Efficiency, Fix depth,
-and Conventions, yourself, in sequence, in your own context; start no
-subagents. Each angle surfaces up to 8 candidates.
+The Phase 2 reviewer runs all eleven angles, A to F, Reuse, Simplification,
+Efficiency, Fix depth, and Conventions, in sequence, in its own context. Each
+angle surfaces up to 8 candidates. Without subagents, follow the rule in
+Reviewers and run them yourself.
 
-Pool the candidates and merge only near-duplicates: the same defect at the
-same place for the same reason. Do not verify or re-judge them, and do not
-drop any on uncertainty. Sort by severity.
+The reviewer pools the candidates and merges only near-duplicates: the same
+defect at the same place for the same reason. It does not verify or re-judge
+them, and does not drop any on uncertainty. It sorts them by severity.
 
-Then run the gap sweep yourself, in the same context, with the merged list.
+Then the same reviewer runs the gap sweep, in its own context, with the merged
+list.
 
-Aim for at least 7 findings; when fewer genuine ones exist, keep what you have
-rather than inventing more. Keep at most 15, the most severe.
+It aims for at least 7 findings; when fewer genuine ones exist, it keeps what
+it has rather than inventing more. It keeps at most 15, the most severe.
 
 ### Max
 
@@ -336,11 +380,13 @@ Keep at most 15 findings, the most severe.
 
 ## Fix and check
 
-Reread the code behind each kept finding before acting on it. Below the max
-level nothing has been verified independently, so this reread replaces
-verification: judge each finding against the code as a verifier would, and
-drop the ones the code refutes, recording why. Rank findings by impact and
-evidence, not by how many angles raised them.
+You own every edit, check, and the report. Reread the code behind each kept
+finding before acting on it, limited to the lines the finding cites and what
+you need to judge them. Below the max level nothing has been verified
+independently, so this reread replaces verification: judge each finding
+against the code as a verifier would, and drop the ones the code refutes,
+recording why. Rank findings by impact and evidence, not by how many angles
+raised them.
 
 - Fix confirmed defects within your authority. For a testable bug, write a
   regression test that fails before the fix and passes after it.
@@ -365,9 +411,9 @@ that still fail.
 Keep the report proportional to the change:
 
 - the scope: the comparison and the files;
-- what ran: the review level and where it came from, named by the user, your
-  reasoning effort, or the default; the number of subagents started and their
-  models; or that the review was single-pass;
+- what ran: the review level and its source, named by the user or the
+  default; whether Phase 2 ran in a subagent or inline; the number of
+  subagents started and their models; or that the review was single-pass;
 - cleanup: what was fixed, and what was skipped and why, or, on a review-only
   run, what is proposed;
 - bugs: each kept finding with its verdict, from a verifier at the max level

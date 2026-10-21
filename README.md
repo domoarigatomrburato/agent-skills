@@ -8,7 +8,7 @@ required.
 |---|---|
 | `grilling` | Challenge a plan through focused, consequential questions. |
 | `domain-modeling` | Clarify domain concepts and record concise, durable decisions. |
-| `inquisition` | Clean up a set of changes with parallel reviewers, then review the result for bugs at a review level that follows the agent's effort, with independent verifiers at the max level; fix supported issues. |
+| `inquisition` | Clean up a set of changes with parallel reviewers, then review the result for bugs at a review level you name, high by default, with independent verifiers at the max level; fix supported issues. |
 | `ideogram-prompt` | Ideogram 4 captions: structured JSON with magic prompt off, or plain text with magic prompt on. Ships a validator that ports Ideogram's `CaptionVerifier`. |
 | `krea-prompt` | Krea 2 and Krea 2 Turbo prompts. Ships a linter that counts tokens against the 507-token prompt budget and a size calculator for 1K and 2K. |
 | `z-image-prompt` | Z-Image Turbo prompts in English or Chinese, built on Tongyi-MAI's own prompt enhancer rules. Ships a linter that counts tokens against the 504-token window. |
@@ -28,15 +28,16 @@ Inquisition works in two phases with one coordinating editor. First, four fresh
 reviewers look for reuse, simplification, efficiency, and fix-depth issues, and
 the coordinator applies the behavior-preserving cleanups. Then it reviews the
 cleaned-up result for bugs at a review level, `low`, `medium`, `high`, `xhigh`,
-or `max`: the one you name, otherwise the coordinator's reasoning effort. Up to
-`xhigh`, the coordinator reviews alone: `low` makes one pass over the diff;
-`medium` and `high` run nine angles, including tests and the cleanup angles
-again; `xhigh` adds language pitfalls and wrappers, and a final gap sweep. Only
-`max` starts a parallel finder per angle, a fresh verifier for every candidate,
-and a sweep agent; ask for a level such as max to get the deepest review
-whatever the effort. The coordinator then fixes the supported defects.
-Reviewers and verifiers run on a full-capability model at a reasoning effort
-no lower than the coordinator's.
+or `max`: the one you name, otherwise `high`, never the agent's effort. At
+`low` the coordinator makes one pass over the diff itself. At `medium` and
+`high`, one read-only reviewer subagent runs nine angles, including tests and
+the cleanup angles again; at `xhigh` it adds language pitfalls and wrappers,
+and a final gap sweep. The subagent keeps the coordinator's context small and
+the review independent. Only `max` starts a parallel finder per angle, a fresh
+verifier for every candidate, and a sweep agent; name a level, such as max,
+for a deeper review than the default. The coordinator then fixes the supported
+defects. Reviewers and verifiers run on a full-capability model and inherit
+the session's reasoning effort.
 
 It handles commits, revision ranges, branch changes, paths, or uncommitted work.
 A bare invocation selects the current branch's changes since its merge base with
