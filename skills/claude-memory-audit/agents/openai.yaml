@@ -1,0 +1,5 @@
+interface:
+  display_name: "Claude Memory Audit"
+  short_description: "Audit Claude Code memory files"
+policy:
+  allow_implicit_invocation: false

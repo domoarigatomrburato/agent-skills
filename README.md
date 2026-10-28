@@ -14,6 +14,7 @@ required.
 | `z-image-prompt` | Z-Image Turbo prompts in English or Chinese, built on Tongyi-MAI's own prompt enhancer rules. Ships a linter that counts tokens against the 504-token window. |
 | `drawthings` | Render prompts through the Draw Things app's API server: model recipes (Krea 2 Turbo, Ideogram 4, Qwen Image 2512 and Z Image Turbo on Draw Things+ cloud compute, SeedVR2 upscaling, or local models), seed sets, retries, PNGs with a run log and a contact sheet. |
 | `token-audit` | Measure Claude Code token spend from local transcripts: spend by source, session, agent type and context size, review runs, compactions and re-reads, a compaction-threshold replay, agent prefix probes, and comparisons between saved reports. |
+| `claude-memory-audit` | Audit Claude Code's memory files for scope, duplicates, obsolete facts, weak wording and index integrity; fix the real defects and report. Claude Code only, built to run unattended as a daily scheduled task. |
 
 ## Development workflow
 
@@ -112,12 +113,29 @@ script is standard-library Python 3.8+. Reports, agent prefix probes and a log o
 configuration changes are saved in `~/.claude/token-audit/`, outside any repository, because
 they contain session titles and paths.
 
+## Memory audit
+
+The `claude-memory-audit` skill checks Claude Code's memories: every project store under
+`~/.claude/projects/*/memory/`, plus a global store when `~/.claude/CLAUDE.md` or a file it
+imports points to one. It moves memories to the right store, merges duplicates, removes
+obsolete facts after one direct check, fixes weak index lines and broken links, and deletes the
+memory folders of working folders that no longer exist. It edits only memory files and their
+`MEMORY.md` indexes and reports anything else as a proposal. Schedule it as a daily local task
+in the Claude desktop app with the prompt "Run Claude Memory Audit"; most days it reports no
+changes. It works only in Claude Code, so install it for Claude Code alone (see Install).
+
 ## Install
 
 Install from the published GitHub repository for local Cursor, Codex, and Claude:
 
 ```bash
 npx skills@latest add domoarigatomrburato/agent-skills -g --skill grilling domain-modeling inquisition ideogram-prompt krea-prompt z-image-prompt drawthings token-audit --agent universal claude-code -y
+```
+
+The memory audit works only in Claude Code, so it is installed for Claude Code alone:
+
+```bash
+npx skills@latest add domoarigatomrburato/agent-skills -g --skill claude-memory-audit --agent claude-code -y
 ```
 
 On a machine that needs only the token audit:

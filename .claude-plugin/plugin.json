@@ -8,6 +8,7 @@
     "./skills/krea-prompt",
     "./skills/z-image-prompt",
     "./skills/drawthings",
-    "./skills/token-audit"
+    "./skills/token-audit",
+    "./skills/claude-memory-audit"
   ]
 }
