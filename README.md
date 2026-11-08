@@ -8,6 +8,7 @@ required.
 |---|---|
 | `grilling` | Challenge a plan through focused, consequential questions. |
 | `domain-modeling` | Clarify domain concepts and record concise, durable decisions. |
+| `improve-architecture` | Find deepening opportunities in a codebase: rank refactor candidates that turn shallow modules into deep ones, in the chat, then work through the one you pick. |
 | `inquisition` | Clean up a set of changes with parallel reviewers, then review the result for bugs at a review level you name, high by default, with independent verifiers at the max level; fix supported issues. |
 | `ideogram-prompt` | Ideogram 4 captions: structured JSON with magic prompt off, or plain text with magic prompt on. Ships a validator that ports Ideogram's `CaptionVerifier`. |
 | `krea-prompt` | Krea 2 and Krea 2 Turbo prompts. Ships a linter that counts tokens against the 507-token prompt budget and a size calculator for 1K and 2K. |
@@ -129,7 +130,7 @@ changes. It works only in Claude Code, so install it for Claude Code alone (see 
 Install from the published GitHub repository for local Cursor, Codex, and Claude:
 
 ```bash
-npx skills@latest add domoarigatomrburato/agent-skills -g --skill grilling domain-modeling inquisition ideogram-prompt krea-prompt z-image-prompt drawthings token-audit --agent universal claude-code -y
+npx skills@latest add domoarigatomrburato/agent-skills -g --skill grilling domain-modeling improve-architecture inquisition ideogram-prompt krea-prompt z-image-prompt drawthings token-audit --agent universal claude-code -y
 ```
 
 The memory audit works only in Claude Code, so it is installed for Claude Code alone:
@@ -165,11 +166,14 @@ Skills CLI 1.5.25 can retain its upstream tracking record during a local overwri
 
 ## Attribution
 
-Grilling and Domain Modeling are locally maintained adaptations of Matt Pocock's
-MIT-licensed [skills](https://github.com/mattpocock/skills), based on the installed
-versions updated on 2026-08-21. Their folders preserve the upstream license.
-They retain focused questioning, domain vocabulary, and ADR practices while
-removing cross-skill dependencies and narrowing activation and scope.
+Grilling, Domain Modeling and Improve Architecture are locally maintained adaptations of
+Matt Pocock's MIT-licensed [skills](https://github.com/mattpocock/skills). Grilling and
+Domain Modeling are based on the installed versions updated on 2026-08-21; Improve
+Architecture on `improve-codebase-architecture` and `codebase-design` as published on
+2026-11-08. Their folders preserve the upstream license. They retain focused
+questioning, domain vocabulary, ADR practices and the deep-module vocabulary while
+removing cross-skill dependencies, the HTML report and the parallel design subagents,
+and narrowing activation and scope.
 
 The prompting skills quote their official sources in their `references` folders:
 
