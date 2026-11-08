@@ -41,7 +41,7 @@ server.
 Do not switch to the official `draw-things-cli` for cloud renders (`generate --cloud-compute`).
 It signs in with a Draw Things API key obtained through Google sign-in, and nothing documented
 links that account to a Draw Things+ subscription bought in the App Store, so it runs on a free
-account limited to 15,000 units per job. Stay on the app's API server with Bridge Mode unless
+account limited to 10,000 units per job. Stay on the app's API server with Bridge Mode unless
 Draw Things documents that link. The CLI's local mode and its `--config-file` format still
 serve as upstream documentation.
 

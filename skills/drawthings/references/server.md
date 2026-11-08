@@ -184,8 +184,8 @@ LoRAs). The entries are model ids, not checkpoint file names (`flux-2-dev`, `qwe
 `ltx-2.3-22b-dev`, `wan-v2.2-a14b-...`, plus dozens of SDXL and SD 1.5 community checkpoints on
 2026-09-26); the file name the request must carry still comes from a PNG the app exported or
 from the model zoo. A model missing from that list fails through Bridge Mode whatever the spec
-says. The wiki states the per-job ceilings: 40,000 compute units on Draw Things+, 15,000 on
-the free Community tier, and local LoRAs (BYOL) only on Draw Things+.
+says. The per-job ceilings are 40,000 compute units on Draw Things+ and 10,000 on the free
+Community tier (the thresholds in the app's `ComputeUnits.swift`), and local LoRAs (BYOL) only on Draw Things+.
 
 Shortest route: export any PNG the app made with that model and run `scripts/png_config.py`
 on it. The metadata names the model file exactly as the cloud expects it (the app's "Ideogram 4
