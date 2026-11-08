@@ -38,6 +38,13 @@ of rendering. The script re-executes itself under the venv, so any `python3` can
 `DRAWTHINGS_PYTHON` overrides the interpreter, `DRAWTHINGS_HOST` and `DRAWTHINGS_PORT` the
 server.
 
+Do not switch to the official `draw-things-cli` for cloud renders (`generate --cloud-compute`).
+It signs in with a Draw Things API key obtained through Google sign-in, and nothing documented
+links that account to a Draw Things+ subscription bought in the App Store, so it runs on a free
+account limited to 15,000 units per job. Stay on the app's API server with Bridge Mode unless
+Draw Things documents that link. The CLI's local mode and its `--config-file` format still
+serve as upstream documentation.
+
 ## 2. Run a round
 
 Write the prompt with the model's prompting skill first (`krea-prompt` for Krea 2 Turbo,
@@ -156,6 +163,31 @@ CFG is on (guidance above 1). Reference points for the recipes:
 `--estimate-only` prints the number without connecting; `--tier community` applies the lower
 limit; `DRAWTHINGS_TIER` sets the default. The formula is upstream's, with a calibration
 constant they tuned on FLUX; treat a result within a few percent of the limit as over it. Checked against the app once: for 1920x1280 at 32 steps with guidance 7 the app showed about 39,000 and the formula gives 39,477.
+
+Draw Things+ is flat-rate, so units are a per-job limit, not a cost. Do not ask the user to
+approve a round by its units; keep each job within the limit, and before a round state the job
+count, the rough duration and how to stop it.
+
+## 2c. Many images inside the app: write an app script
+
+Renders sent through the API server land on disk, never in the project open in the app. When
+the user wants a catalog or a project, or many images inside the app, write a script for the
+app's Scripts panel instead. It calls `pipeline.run({configuration, prompt, negativePrompt})`,
+where `configuration` uses the Copy Configuration schema; the scripting API is defined in
+`Libraries/Scripting/Sources/SharedScript.swift` in `drawthingsai/draw-things-community`. Keep
+the API route for single experiments, where reproducible PNGs and sidecar files on disk are the
+point.
+
+- **Retries and stops.** The cloud's flakiness (section 5) applies here too: retry a failed
+  attempt with a growing wait, pause on repeated failures, and let the user stop the script
+  through a stop file it checks between images.
+- **Clear the canvas after a failed attempt.** An aborted generation leaves its partial image on
+  the canvas, and the next generation of the same size starts from it. Treat an attempt that
+  throws or adds no new image as failed, then call `canvas.clear()` and realign the generation
+  area (`canvas.moveCanvas`, `canvas.boundingBox`) before the retry or the next image. Clear on
+  every size change as well.
+- **Large sizes.** Set `tiledDecoding: true` in the configuration where section 5 says the
+  model needs it; a script gets none of the recipe's automatic settings.
 
 ## 3. Recipes
 

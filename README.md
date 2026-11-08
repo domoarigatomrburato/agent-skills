@@ -102,7 +102,9 @@ can append a line per image to a project's `runs.jsonl`; the cloud's random abor
 sending, it estimates the request's compute units with the app's own formula and refuses jobs
 over the tier limit, so a 48-step 2K Ideogram job is stopped locally instead of by the cloud.
 `png_config.py` reads the settings and prompt out of any Draw Things PNG, the app's own exports
-included, and prints the command that reproduces the image.
+included, and prints the command that reproduces the image. For a catalog that should live
+inside a Draw Things project, the skill writes a script for the app's Scripts panel instead,
+since API renders never enter the open project.
 
 ## Token audit
 
